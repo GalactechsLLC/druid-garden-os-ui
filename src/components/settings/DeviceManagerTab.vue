@@ -1,0 +1,615 @@
+<script setup lang="ts">
+import { ref, onMounted } from 'vue';
+import { useDiskStore } from '@/stores/diskStore';
+import { useNotificationStore } from '@/stores/notificationStore';
+import { withApiLoading } from '@/utils/api';
+import type { MountRequest, Partition } from '@/types/disk';
+import * as DiskUtils from '@/utils/disk';
+
+// Get the stores
+const diskStore = useDiskStore();
+const notificationStore = useNotificationStore();
+
+// Local implementation of isMountablePartition in case the import isn't working
+function isMountablePartition(partition: Partition | null): boolean {
+  if (!partition) return false;
+
+  // If it has a mount_path, it's already mounted and NOT mountable
+  if (partition.mount_path) return false;
+
+  // If we get here, it's not mounted, so it SHOULD be mountable
+  return true;
+}
+
+// For mount dialog
+const mountDialogOpen = ref(false);
+const selectedPartition = ref<Partition | null>(null);
+const mountPath = ref('');
+const mountingInProgress = ref(false);
+
+// For unmount confirm dialog
+const unmountConfirmOpen = ref(false);
+const partitionToUnmount = ref<Partition | null>(null);
+
+// For info dialog
+const infoDialogOpen = ref(false);
+const partitionInfo = ref<Partition | null>(null);
+
+const mountOptions = ref('');
+const mountReadOnly = ref(false);
+const mountNoexec = ref(false);
+const mountSync = ref(false);
+const mountSetUid = ref(false);
+const mountUid = ref(1000);
+const mountGid = ref(1000);
+
+// Build mount options string
+const buildMountOptionsString = (): string => {
+  if (!selectedPartition.value) return 'defaults';
+
+  return DiskUtils.buildMountOptionsString(
+      mountOptions.value,
+      mountReadOnly.value,
+      mountNoexec.value,
+      mountSync.value,
+      mountSetUid.value,
+      mountUid.value,
+      mountGid.value,
+      selectedPartition.value
+  );
+};
+
+// Reset mount dialog options to defaults
+const resetMountOptions = () => {
+  mountOptions.value = '';
+  mountReadOnly.value = false;
+  mountNoexec.value = false;
+  mountSync.value = false;
+  mountSetUid.value = false;
+  mountUid.value = 1000;
+  mountGid.value = 1000;
+};
+
+// Show partition info dialog
+const showPartitionInfo = (partition: Partition): void => {
+  partitionInfo.value = partition;
+  infoDialogOpen.value = true;
+};
+
+// Show unmount confirmation dialog
+const confirmUnmount = (partition: Partition): void => {
+  partitionToUnmount.value = partition;
+  unmountConfirmOpen.value = true;
+};
+
+const openMountDialog = (partition: Partition): void => {
+  selectedPartition.value = partition;
+
+  if (partition.uuid) {
+    mountPath.value = `/mnt/${partition.uuid}`;
+  } else {
+    const deviceName = partition.device.replace('/dev/', '');
+    mountPath.value = `/mnt/${deviceName}`;
+  }
+
+  resetMountOptions();
+
+  const fstype = partition.file_system?.toLowerCase() || '';
+
+  if (fstype.includes('ntfs')) {
+    mountOptions.value = 'uid=1000,gid=1000,dmask=027,fmask=137';
+    mountSetUid.value = true;
+  } else if (fstype.includes('fat')) {
+    mountOptions.value = 'uid=1000,gid=1000,utf8=1';
+    mountSetUid.value = true;
+  } else {
+    mountOptions.value = 'defaults';
+  }
+
+  mountDialogOpen.value = true;
+};
+
+const mountPartition = async (): Promise<void> => {
+  if (!selectedPartition.value || !mountPath.value) return;
+
+  await withApiLoading(
+      mountingInProgress,
+      async () => {
+        const mountRequest: MountRequest = {
+          device_path: selectedPartition.value!.device,
+          mount_path: mountPath.value
+        };
+
+        const optionsString = buildMountOptionsString();
+        if (optionsString !== 'defaults') {
+          mountRequest.options = optionsString;
+        }
+
+        if (selectedPartition.value!.uuid) {
+          mountRequest.by_uuid = true;
+          mountRequest.uuid = selectedPartition.value!.uuid;
+        }
+
+        // Call the mount function
+        await diskStore.mountDiskWithOptions(mountRequest);
+
+        // Close dialog and refresh
+        mountDialogOpen.value = false;
+        await fetchDisks(false);
+
+        return true;
+      },
+      {
+        showSuccessNotification: true,
+        successMessage: `Partition ${selectedPartition.value.device} mounted at ${mountPath.value}`,
+        showErrorNotification: true,
+        errorMessage: 'Failed to mount partition'
+      }
+  );
+};
+
+const unmountPartition = async (partition: Partition): Promise<void> => {
+  if (!partition.mount_path) return;
+
+  unmountConfirmOpen.value = false;
+
+  if (partition.loading === undefined) {
+    partition.loading = true;
+  } else {
+    partition.loading = true;
+  }
+
+  try {
+    await diskStore.unmountDisk(partition.mount_path);
+
+    notificationStore.success(`Partition ${partition.device} unmounted successfully`, {
+      icon: 'check_circle'
+    });
+
+    // Refresh to update UI
+    await fetchDisks(false);
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+    notificationStore.error(`Failed to unmount: ${errorMessage}`, {
+      icon: 'error'
+    });
+  } finally {
+    partition.loading = false;
+  }
+};
+
+const fetchDisks = async (show_notif: boolean): Promise<void> => {
+  try {
+    diskStore.error = null;
+
+    await diskStore.fetchDisks();
+
+    if(show_notif) {
+      notificationStore.success('Storage devices refreshed', {
+        icon: 'refresh',
+        timeout: 2000
+      });
+    }
+  } catch (error) {
+    console.error('Error fetching disks:', error);
+
+    notificationStore.error('Failed to refresh storage devices', {
+      icon: 'error'
+    });
+  }
+};
+
+onMounted(async () => {
+  await fetchDisks(false);
+});
+</script>
+
+<template>
+  <div>
+    <div class="row items-center justify-between q-mb-md">
+      <div class="text-h6 q-mb-md">Storage Manager</div>
+      <q-btn
+          round
+          dense
+          flat
+          color="primary"
+          icon="refresh"
+          @click="fetchDisks(true)"
+          :loading="diskStore.loading"
+          :disable="diskStore.loading"
+          class="q-ml-md"
+          title="Reload Devices"
+      >
+        <q-tooltip>Reload Devices</q-tooltip>
+      </q-btn>
+    </div>
+
+
+    <q-banner v-if="diskStore.error" class="bg-negative text-white q-mb-md">
+      <template v-slot:avatar>
+        <q-icon name="error" />
+      </template>
+      {{ diskStore.error }}
+    </q-banner>
+
+    <!-- Disk list -->
+    <div v-if="diskStore.disks.length > 0" :class="{'device-list': true, 'loading-list': diskStore.loading}">
+      <q-card v-for="disk in diskStore.disks" :key="disk.device" class="q-mb-md disk-card">
+        <q-card-section>
+          <div class="row items-center">
+            <!-- Use appropriate icon based on disk type -->
+            <q-icon :name="disk.device?.includes('nvme') ? 'memory' : 'storage'" size="md" class="q-mr-md" />
+            <div class="col">
+              <div class="text-subtitle1">{{ disk.model || 'Unknown Device' }}</div>
+              <div class="text-caption">
+                {{ DiskUtils.formatSize(disk.space_info?.total_space) }} • {{ DiskUtils.getDiskTypeDescription(disk) }}
+              </div>
+            </div>
+          </div>
+        </q-card-section>
+
+        <q-separator />
+
+        <q-card-section>
+          <div class="row items-center q-mb-sm">
+            <div class="text-subtitle2">Partitions</div>
+            <q-space />
+            <q-badge color="grey-7" v-if="disk.partitions?.length">
+              {{ disk.partitions.length }} partition{{ disk.partitions.length !== 1 ? 's' : '' }}
+            </q-badge>
+          </div>
+
+          <div v-if="disk.partitions && disk.partitions.length > 0">
+            <q-list separator>
+              <q-item
+                  v-for="partition in disk.partitions"
+                  :key="partition.device"
+                  :class="{
+                  'partition-item--mounted': partition.mount_path,
+                  'partition-item--unmounted': !partition.mount_path,
+                  'partition-item': true
+                }"
+              >
+                <q-item-section avatar>
+                  <q-icon :name="partition.mount_path ? 'link' : 'link_off'" />
+                </q-item-section>
+
+                <q-item-section>
+                  <q-item-label>
+                    {{ partition.device }}
+                    <q-badge v-if="partition.file_system" color="blue-grey-7" class="q-ml-sm">
+                      {{ DiskUtils.getFilesystemDescription(partition.file_system) }}
+                    </q-badge>
+                  </q-item-label>
+
+                  <q-item-label caption>
+                    {{ partition.space_info ? DiskUtils.formatSize(partition.space_info.total_space) : 'Unknown size' }}
+                    <template v-if="partition.mount_path">
+                      • Mounted at: <span class="text-primary">{{ partition.mount_path }}</span>
+                    </template>
+                    <template v-else>
+                      • Not mounted
+                    </template>
+                  </q-item-label>
+
+                  <q-item-label v-if="partition.label || partition.uuid" caption>
+                    <template v-if="partition.label">
+                      Label: {{ partition.label }}
+                    </template>
+                    <template v-if="partition.uuid">
+                      {{ partition.label ? ' • ' : '' }}UUID: {{ partition.uuid }}
+                    </template>
+                  </q-item-label>
+                </q-item-section>
+
+                <q-item-section side>
+                  <div class="row items-center">
+                    <q-btn
+                        v-if="partition.mount_path"
+                        color="negative"
+                        label="Unmount"
+                        flat
+                        dense
+                        @click="confirmUnmount(partition)"
+                        :loading="partition.loading"
+                    />
+                    <q-btn
+                        v-else-if="isMountablePartition(partition)"
+                        color="primary"
+                        label="Mount"
+                        flat
+                        dense
+                        @click="openMountDialog(partition)"
+                        :loading="partition.loading"
+                    />
+                    <q-btn
+                        v-if="partition.mount_path"
+                        color="info"
+                        label="Info"
+                        flat
+                        dense
+                        @click="showPartitionInfo(partition)"
+                    />
+                  </div>
+                </q-item-section>
+              </q-item>
+            </q-list>
+          </div>
+          <div v-else class="text-grey-7 q-pa-md text-center">No partitions found</div>
+        </q-card-section>
+      </q-card>
+    </div>
+
+    <div v-else-if="diskStore.loading" class="text-center q-pa-xl">
+      <q-spinner color="primary" size="3em" />
+      <div class="q-mt-md">Loading storage devices...</div>
+    </div>
+    <div v-else class="text-center q-pa-xl text-grey-7">
+      No storage devices detected
+    </div>
+
+    <!-- Mount Dialog -->
+    <q-dialog v-model="mountDialogOpen" persistent>
+      <q-card style="width: 500px; max-width: 90vw;">
+        <q-card-section>
+          <div class="text-h6">Mount {{ selectedPartition ? selectedPartition.device : 'Partition' }}</div>
+          <div v-if="selectedPartition" class="text-caption q-mt-sm">
+            {{ selectedPartition.space_info ? DiskUtils.formatSize(selectedPartition.space_info.total_space) : 'Unknown size' }} •
+            {{ DiskUtils.getFilesystemDescription(selectedPartition.file_system) }}
+            <span v-if="selectedPartition.label"> • {{ selectedPartition.label }}</span>
+            <span v-if="selectedPartition.uuid"> • Mount using UUID: {{ selectedPartition.uuid }}</span>
+          </div>
+        </q-card-section>
+
+        <q-card-section>
+          <q-form @submit="mountPartition">
+            <div class="row q-col-gutter-md">
+              <div class="col-12">
+                <q-input
+                    v-model="mountPath"
+                    label="Mount Point"
+                    :rules="[val => !!val || 'Mount point is required']"
+                    hint="Directory where the partition will be mounted"
+                />
+              </div>
+
+              <div class="col-12">
+                <q-expansion-item
+                    switch-toggle-side
+                    expand-separator
+                    label="Advanced Options"
+                    caption="Filesystem-specific mount options"
+                >
+                  <q-card>
+                    <q-card-section>
+                      <q-input
+                          v-model="mountOptions"
+                          label="Mount Options"
+                          hint="Comma-separated list of mount options"
+                      />
+
+                      <div class="q-mt-md">
+                        <q-toggle v-model="mountReadOnly" label="Read-only" />
+                      </div>
+
+                      <div class="q-mt-sm">
+                        <q-toggle v-model="mountNoexec" label="No executable files" />
+                      </div>
+
+                      <div class="q-mt-sm">
+                        <q-toggle v-model="mountSync" label="Synchronous writes" />
+                      </div>
+
+                      <div
+                          v-if="selectedPartition && DiskUtils.isWindowsNativeFs(selectedPartition.file_system)"
+                          class="q-mt-sm"
+                      >
+                        <q-toggle v-model="mountSetUid" label="Set owner UID/GID" />
+
+                        <div v-if="mountSetUid" class="row q-col-gutter-md q-mt-sm">
+                          <div class="col-6">
+                            <q-input v-model.number="mountUid" type="number" label="User ID" min="0" max="65535" />
+                          </div>
+                          <div class="col-6">
+                            <q-input v-model.number="mountGid" type="number" label="Group ID" min="0" max="65535" />
+                          </div>
+                        </div>
+                      </div>
+                    </q-card-section>
+                  </q-card>
+                </q-expansion-item>
+              </div>
+            </div>
+          </q-form>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" color="negative" v-close-popup />
+          <q-btn flat label="Mount" color="primary" @click="mountPartition" :loading="mountingInProgress" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Partition Info Dialog -->
+    <q-dialog v-model="infoDialogOpen">
+      <q-card style="width: 600px; max-width: 90vw;">
+        <q-card-section>
+          <div class="text-h6">Partition Information</div>
+        </q-card-section>
+
+        <q-card-section v-if="partitionInfo">
+          <q-list dense>
+            <q-item>
+              <q-item-section>
+                <q-item-label caption>Device</q-item-label>
+                <q-item-label>{{ partitionInfo.device }}</q-item-label>
+              </q-item-section>
+            </q-item>
+
+            <q-item v-if="partitionInfo.file_system">
+              <q-item-section>
+                <q-item-label caption>File System</q-item-label>
+                <q-item-label>{{ DiskUtils.getFilesystemDescription(partitionInfo.file_system) }}</q-item-label>
+              </q-item-section>
+            </q-item>
+
+            <q-item v-if="partitionInfo.mount_path">
+              <q-item-section>
+                <q-item-label caption>Mount Point</q-item-label>
+                <q-item-label>{{ partitionInfo.mount_path }}</q-item-label>
+              </q-item-section>
+            </q-item>
+
+            <q-item v-if="partitionInfo.space_info">
+              <q-item-section>
+                <q-item-label caption>Total Space</q-item-label>
+                <q-item-label>{{ DiskUtils.formatSize(partitionInfo.space_info.total_space) }}</q-item-label>
+              </q-item-section>
+            </q-item>
+
+            <q-item v-if="partitionInfo.space_info">
+              <q-item-section>
+                <q-item-label caption>Used Space</q-item-label>
+                <q-item-label>{{ DiskUtils.formatSize(partitionInfo.space_info.used_space) }}
+                  ({{ ((partitionInfo.space_info.used_space / partitionInfo.space_info.total_space) * 100).toFixed(2) }}%)
+                </q-item-label>
+              </q-item-section>
+            </q-item>
+
+            <q-item v-if="partitionInfo.space_info">
+              <q-item-section>
+                <q-item-label caption>Free Space</q-item-label>
+                <q-item-label>{{ DiskUtils.formatSize(partitionInfo.space_info.free_space) }}</q-item-label>
+              </q-item-section>
+            </q-item>
+
+            <q-item v-if="partitionInfo.label">
+              <q-item-section>
+                <q-item-label caption>Label</q-item-label>
+                <q-item-label>{{ partitionInfo.label }}</q-item-label>
+              </q-item-section>
+            </q-item>
+
+            <q-item v-if="partitionInfo.uuid">
+              <q-item-section>
+                <q-item-label caption>UUID</q-item-label>
+                <q-item-label>{{ partitionInfo.uuid }}</q-item-label>
+              </q-item-section>
+            </q-item>
+          </q-list>
+
+          <div v-if="partitionInfo.space_info" class="q-mt-md">
+            <div class="text-subtitle2 q-mb-xs">Disk Usage</div>
+            <q-linear-progress
+                size="25px"
+                :value="partitionInfo.space_info.used_space / partitionInfo.space_info.total_space"
+                :color="
+                (partitionInfo.space_info.used_space / partitionInfo.space_info.total_space) > 0.9 ? 'negative' :
+                (partitionInfo.space_info.used_space / partitionInfo.space_info.total_space) > 0.7 ? 'warning' :
+                'positive'
+              "
+            >
+              <div class="absolute-full flex flex-center">
+                <q-badge color="white" text-color="black" :label="`${((partitionInfo.space_info.used_space / partitionInfo.space_info.total_space) * 100).toFixed(2)}%`" />
+              </div>
+            </q-linear-progress>
+          </div>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Close" color="primary" v-close-popup />
+          <q-btn
+              v-if="partitionInfo && !partitionInfo.mount_path && isMountablePartition(partitionInfo)"
+              flat
+              label="Mount"
+              color="primary"
+              @click="() => {
+              infoDialogOpen = false;
+              if (partitionInfo) openMountDialog(partitionInfo);
+            }"
+          />
+          <q-btn
+              v-if="partitionInfo && partitionInfo.mount_path"
+              flat
+              label="Unmount"
+              color="negative"
+              @click="() => {
+              infoDialogOpen = false;
+              if (partitionInfo) confirmUnmount(partitionInfo);
+            }"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Unmount Confirmation Dialog -->
+    <q-dialog v-model="unmountConfirmOpen" persistent>
+      <q-card>
+        <q-card-section class="row items-center">
+          <q-avatar icon="warning" color="warning" text-color="white" />
+          <span class="q-ml-sm">Are you sure you want to unmount this partition?</span>
+        </q-card-section>
+
+        <q-card-section v-if="partitionToUnmount">
+          <div><strong>Device:</strong> {{ partitionToUnmount.device }}</div>
+          <div v-if="partitionToUnmount.file_system">
+            <strong>Filesystem:</strong> {{ DiskUtils.getFilesystemDescription(partitionToUnmount.file_system) }}
+          </div>
+          <div v-if="partitionToUnmount.mount_path">
+            <strong>Mount Point:</strong> {{ partitionToUnmount.mount_path }}
+          </div>
+
+          <q-banner class="q-mt-md bg-warning text-white">
+            <template v-slot:avatar>
+              <q-icon name="info" />
+            </template>
+            Unmounting a partition may interrupt any running processes accessing files on this partition. Make sure all files are closed before proceeding.
+          </q-banner>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" color="primary" v-close-popup />
+          <q-btn
+              flat
+              label="Unmount"
+              color="negative"
+              :loading="partitionToUnmount?.loading"
+              @click="partitionToUnmount && unmountPartition(partitionToUnmount)"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+  </div>
+</template>
+
+<style scoped>
+.partition-item--mounted {
+  background-color: rgba(33, 186, 69, 0.04);
+}
+
+.partition-item--unmounted {
+  background-color: rgba(0, 0, 0, 0.01);
+}
+
+.partition-item:hover {
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+.device-list {
+  transition: opacity 0.3s ease;
+}
+
+.loading-list {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+@keyframes shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+</style>

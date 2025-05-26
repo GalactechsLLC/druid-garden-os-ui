@@ -1,0 +1,688 @@
+/* color palette from <https://github.com/vuejs/theme> */
+:root {
+  --vt-c-white: #ffffff;
+  --vt-c-white-soft: #f8f8f8;
+  --vt-c-white-mute: #f2f2f2;
+
+  --vt-c-black: #181818;
+  --vt-c-black-soft: #222222;
+  --vt-c-black-mute: #282828;
+
+  --vt-c-indigo: #2c3e50;
+
+  --vt-c-divider-light-1: rgba(60, 60, 60, 0.29);
+  --vt-c-divider-light-2: rgba(60, 60, 60, 0.12);
+  --vt-c-divider-dark-1: rgba(84, 84, 84, 0.65);
+  --vt-c-divider-dark-2: rgba(84, 84, 84, 0.48);
+
+  --vt-c-text-light-1: var(--vt-c-indigo);
+  --vt-c-text-light-2: rgba(60, 60, 60, 0.66);
+  --vt-c-text-dark-1: var(--vt-c-white);
+  --vt-c-text-dark-2: rgba(235, 235, 235, 0.64);
+}
+
+/* semantic color variables for this project */
+:root {
+  --color-background: var(--vt-c-white);
+  --color-background-soft: var(--vt-c-white-soft);
+  --color-background-mute: var(--vt-c-white-mute);
+
+  --color-border: var(--vt-c-divider-light-2);
+  --color-border-hover: var(--vt-c-divider-light-1);
+
+  --color-heading: var(--vt-c-text-light-1);
+  --color-text: var(--vt-c-text-light-1);
+
+  --section-gap: 160px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background: var(--vt-c-black);
+    --color-background-soft: var(--vt-c-black-soft);
+    --color-background-mute: var(--vt-c-black-mute);
+
+    --color-border: var(--vt-c-divider-dark-2);
+    --color-border-hover: var(--vt-c-divider-dark-1);
+
+    --color-heading: var(--vt-c-text-dark-1);
+    --color-text: var(--vt-c-text-dark-2);
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  font-weight: normal;
+}
+
+body {
+  min-height: 100vh;
+  color: rgba(0,0,0,.5);
+  background: var(--color-background);
+  transition:
+          color 0.5s,
+          background-color 0.5s;
+  line-height: 1.6;
+  font-family:
+          Inter,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          Roboto,
+          Oxygen,
+          Ubuntu,
+          Cantarell,
+          'Fira Sans',
+          'Droid Sans',
+          'Helvetica Neue',
+          sans-serif;
+  font-size: 15px;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: var(--vt-c-white-mute);
+}
+
+.dark-mode {
+  background: var(--vt-c-black-mute);
+}
+
+#app {
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 2rem;
+  font-weight: normal;
+}
+
+a,
+.green {
+  text-decoration: none;
+  color: hsla(160, 100%, 37%, 1);
+  transition: 0.4s;
+  padding: 3px;
+}
+
+.text-caption {
+  color: rgba(0, 0, 0, 0.54);
+}
+
+.q-item__section--avatar {
+  color: rgba(0, 0, 0, 0.54);
+}
+
+.q-item__label {
+  color: rgba(0, 0, 0, 0.54);
+}
+
+.q-circular-progress__text {
+  color: rgba(0, 0, 0, 0.54);
+}
+
+.q-item__section--avatar {
+  color: rgba(0, 0, 0, 0.54);
+}
+
+.q-item__section.q-item__section--main {
+  color: rgba(0, 0, 0, 0.54);
+}
+
+.q-icon.material-icons {
+  color: rgba(0, 0, 0, 0.54);
+}
+
+.q-toolbar__title.ellipsis .text-h6 {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+.q-card__section.q-card__section--vert.bg-primary.text-white .text-h6 {
+  color: #fff;
+}
+
+.text-h6 .q-icon.material-icons {
+  color: #fff;
+}
+
+.text-h6, .text-h5 {
+  color: var(--q-primary);
+}
+
+.q-page {
+  background: var(--vt-c-white-mute);
+  transition:
+          color 0.5s,
+          background-color 0.5s;
+}
+
+.dark-mode .q-page {
+  background: var(--vt-c-black-mute);
+}
+
+.items-first-baseline {
+  align-items: first baseline;
+}
+
+.responsive-card-home {
+  margin-top: 16px;
+  margin-left: 0;
+}
+
+/* Styles for screens below xl breakpoint (1440px) */
+@media (max-width: 1439px) {
+  .responsive-card-home {
+    margin-top: 0;
+    margin-left: 16px;
+  }
+}
+
+@media (hover: hover) {
+  a:hover {
+    background-color: hsla(160, 100%, 37%, 0.2);
+  }
+}
+
+@media (min-width: 1024px) {
+  body {
+    display: flex;
+    place-items: center;
+  }
+
+  #app {
+    display: grid;
+    grid-template-columns: 1fr;
+    padding: 0 2rem;
+    grid-gap: 1em;
+  }
+}
+
+/* Styles for the settings page */
+
+.current-ip-display {
+  padding: 8px 12px;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 14px;
+}
+
+.body--dark .current-ip-display {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Additional CSS for disks and partitions */
+.disk-card {
+  border-left: 4px solid var(--q-primary);
+  transition: all 0.2s ease;
+}
+
+.disk-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+}
+
+.disk-card .partition-item {
+  border-left: 3px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.partition-item--mounted {
+  border-left: 3px solid var(--q-positive) !important;
+  background-color: rgba(76, 175, 80, 0.04);
+}
+
+.partition-item--unmounted {
+  border-left: 3px solid var(--q-grey-6) !important;
+}
+
+.current-ip-display {
+  background-color: #f5f5f5;
+  padding: 12px;
+  border-radius: 4px;
+  font-family: monospace;
+  border-left: 4px solid var(--q-primary);
+}
+
+.body--dark .current-ip-display {
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+/* Main container */
+.settings-container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* Card styling */
+.settings-card {
+  transition: box-shadow 0.3s ease;
+}
+
+.settings-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+/* Tab styling */
+.settings-tab {
+  min-height: 48px;
+}
+
+/* Form items */
+.settings-form-item {
+  margin-bottom: 16px;
+}
+
+/* Dialog styling */
+.settings-dialog-card {
+  border-radius: 8px;
+}
+
+/* Mount dialog section */
+.mount-options-section {
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  padding-top: 16px;
+  margin-top: 16px;
+}
+
+/* Network list styling */
+.network-list-item {
+  transition: background-color 0.2s ease;
+}
+
+.network-list-item:hover {
+  background-color: rgba(0, 0, 0, 0.03);
+}
+
+.network-connected {
+  background-color: rgba(33, 150, 243, 0.05);
+}
+
+/* Animation for tab panels */
+.q-tab-panels--animated .q-tab-panel {
+  animation: settings-fade-in 0.3s ease;
+}
+
+@keyframes settings-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Responsive adjustments for mobile */
+@media (max-width: 600px) {
+  .q-card {
+    border-radius: 0;
+  }
+
+  .q-page {
+    padding: 8px !important;
+  }
+
+  .settings-dialog-card {
+    width: 100vw !important;
+    max-width: 100vw !important;
+    margin: 0;
+    border-radius: 0;
+  }
+
+  .q-tab {
+    padding: 0 10px;
+  }
+
+  /* Adjust form inputs for touch */
+  .q-input, .q-select, .q-toggle {
+    margin-bottom: 16px;
+  }
+
+  /* Increase tap target size */
+  .q-btn {
+    min-height: 42px;
+  }
+}
+
+/* Dark mode adjustments */
+.body--dark {
+  .settings-card {
+    background-color: #1e1e1e;
+  }
+
+  .network-list-item:hover {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+
+  .network-connected {
+    background-color: rgba(33, 150, 243, 0.1);
+  }
+
+  .q-expansion-item {
+    background-color: rgba(0, 0, 0, 0.2);
+  }
+}
+
+/* Animation for mounting process */
+.mounting-progress {
+  position: relative;
+  overflow: hidden;
+}
+
+.mounting-progress::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 100%;
+  background-image: linear-gradient(
+          90deg,
+          rgba(255, 255, 255, 0) 0%,
+          rgba(255, 255, 255, 0.2) 50%,
+          rgba(255, 255, 255, 0) 100%
+  );
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+/* Styling for partition cards */
+.partition-item {
+  border-left: 3px solid transparent;
+  transition: border-color 0.2s ease;
+}
+
+.partition-item--mounted {
+  border-left-color: var(--q-primary);
+}
+
+.partition-item--unmounted {
+  border-left-color: var(--q-warning);
+}
+
+/* Status indicators */
+.status-indicator {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 8px;
+}
+
+.status-indicator--active {
+  background-color: var(--q-positive);
+}
+
+.status-indicator--inactive {
+  background-color: var(--q-negative);
+}
+
+.status-indicator--warning {
+  background-color: var(--q-warning);
+}
+
+/* Hover effects for action buttons */
+.action-btn {
+  opacity: 0.8;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.action-btn:hover {
+  opacity: 1;
+  transform: scale(1.05);
+}
+
+/* Settings card header with icon */
+.settings-header {
+  display: flex;
+  align-items: center;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+  margin-bottom: 16px;
+}
+
+.settings-header__icon {
+  margin-right: 12px;
+  opacity: 0.7;
+}
+
+.settings-header__title {
+  font-size: 1.1rem;
+  font-weight: 500;
+}
+
+/* WiFi signal strength indicators */
+.wifi-signal {
+  display: flex;
+  align-items: center;
+}
+
+.wifi-signal__bar {
+  width: 4px;
+  margin-right: 1px;
+  background-color: var(--q-primary);
+  border-radius: 1px;
+}
+
+.wifi-signal__bar--active {
+  opacity: 1;
+}
+
+.wifi-signal__bar--inactive {
+  opacity: 0.3;
+}
+
+.json-editor {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  background-color: #f5f5f5;
+  border-radius: 4px;
+  padding: 8px;
+}
+
+.body--dark .json-editor {
+  background-color: #1e1e1e;
+  color: #e0e0e0;
+}
+
+.monospace {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+}
+/* Additional CSS for disks and partitions */
+.disk-card {
+  border-left: 4px solid var(--q-primary);
+  transition: all 0.2s ease;
+}
+
+.disk-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.08);
+}
+
+.disk-card .partition-item {
+  border-left: 3px solid transparent;
+  transition: all 0.2s ease;
+}
+
+.partition-item--mounted {
+  border-left: 3px solid var(--q-positive) !important;
+  background-color: rgba(76, 175, 80, 0.04);
+}
+
+.partition-item--unmounted {
+  border-left: 3px solid var(--q-grey-6) !important;
+}
+
+/* Animation for mounting process */
+.mounting-progress {
+  position: relative;
+  overflow: hidden;
+}
+
+.mounting-progress::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 100%;
+  background-image: linear-gradient(
+          90deg,
+          rgba(255, 255, 255, 0) 0%,
+          rgba(255, 255, 255, 0.2) 50%,
+          rgba(255, 255, 255, 0) 100%
+  );
+  animation: shimmer 1.5s infinite;
+}
+
+/***** Dark Mode CSS *****/
+.dark-mode .q-card {
+  background-color: var(--vt-c-black-soft) !important;
+  border: 1px solid var(--vt-c-divider-dark-2);
+  color: var(--vt-c-text-dark-2);
+}
+
+.dark-mode .q-table__container {
+  background-color: var(--vt-c-black-soft);
+}
+
+.dark-mode [data-v-ccd62336] .q-table th {
+  background-color: var(--vt-c-black-soft);
+}
+
+.dark-mode .text-caption, .dark-mode .q-item__section--avatar, .dark-mode .q-item__label, .dark-mode .q-circular-progress__text, .dark-mode .q-item__section.q-item__section--main, .dark-mode .q-icon.material-icons {
+  color: var(--vt-c-text-dark-2);
+}
+
+.dark-mode .q-table thead, .dark-mode .q-table tr, .dark-mode .q-table th, .dark-mode .q-table td {
+  color: var(--vt-c-text-dark-2);
+}
+
+.dark-mode .q-table__card {
+  color: var(--vt-c-text-dark-2);
+}
+
+.dark-mode .q-field__native, .dark-mode .q-field__prefix, .dark-mode .q-field__suffix, .dark-mode .q-field__input {
+  color: var(--vt-c-text-dark-2);
+}
+
+.dark-mode .q-field__label {
+  color: var(--vt-c-text-dark-2);
+}
+
+.dark-mode .q-table thead, .dark-mode .q-table tr, .dark-mode .q-table th, .dark-mode .q-table td {
+  border-color: var(--vt-c-divider-dark-2);
+}
+
+.dark-mode .bg-input-white[data-v-a0659ae3] {
+  background-color: var(--vt-c-black-soft);
+}
+
+.dark-mode .bg-blue-1 {
+  background-color: var(--vt-c-divider-dark-2) !important;
+}
+
+.dark-mode .q-list .q-item {
+  background-color: var(--vt-c-black-soft);
+}
+
+.dark-mode .farmer-logs[data-v-3399e733] {
+  border-color: var(--vt-c-divider-dark-2);
+}
+
+.dark-mode .logs-header[data-v-3399e733] {
+  border-color: var(--vt-c-divider-dark-2);
+  background-color: var(--vt-c-black-soft);
+}
+
+.dark-mode .logs-container[data-v-3399e733] {
+  background-color: var(--vt-c-black-soft);
+}
+
+.dark-mode .q-stepper {
+  background-color: var(--vt-c-black-soft);
+}
+
+.dark-mode .q-tab-panels {
+  background-color: var(--vt-c-black-soft);
+}
+
+.dark-mode .q-tabs--dense .q-tab {
+  border: 1px solid var(--vt-c-divider-dark-2);
+}
+
+.dark-mode .q-field__messages.col {
+  color: var(--vt-c-text-dark-2);
+}
+
+.dark-mode .q-card__section.q-card__section--vert.bg-grey-3 {
+  background-color: var(--vt-c-black-soft) !important;
+  border-bottom: 1px solid var(--vt-c-divider-dark-2);
+}
+
+.dark-mode .q-banner.row.items-center.bg-grey-3.text-center.q-pa-lg {
+  background-color: var(--vt-c-black-soft) !important;
+  border: 1px solid var(--vt-c-divider-dark-2);
+}
+
+.dark-mode .q-card__actions.justify-end.q-card__actions--horiz.row.bg-grey-1 {
+  background-color: var(--vt-c-black-soft) !important;
+}
+
+.dark-mode .q-menu {
+  background-color: var(--vt-c-black-soft) !important;
+}
+
+.dark-mode .text-subtitle2 {
+  color: var(--vt-c-text-dark-2);
+}
+
+.dark-mode .q-badge.flex.inline.items-center.no-wrap.q-badge--single-line.bg-white.text-black {
+  background-color: var(--vt-c-black-soft) !important;
+  color: var(--vt-c-text-dark-2) !important;
+}
+
+.dark-mode .q-table th {
+  background-color: var(--vt-c-black-soft) !important;
+}
+
+.dark-mode .farmer-logs {
+  border-color: var(--vt-c-divider-dark-2) !important;
+}
+
+.dark-mode .logs-header {
+  background-color: var(--vt-c-black-soft) !important;
+  border-color: var(--vt-c-divider-dark-2) !important;
+}
+
+.dark-mode .logs-container {
+  background-color: var(--vt-c-black-soft) !important;
+}
+
+.dark-mode .log-level-info {
+  background: var(--vt-c-black-mute) !important;
+}
+
+.dark-mode .log-message {
+  color: var(--vt-c-text-dark-2) !important;
+}
+
+.dark-mode .bg-input-white {
+  background: var(--vt-c-black-mute) !important;
+}
+
+.dark-mode .q-checkbox__inner {
+  color: var(--vt-c-text-dark-2) !important;
+}
