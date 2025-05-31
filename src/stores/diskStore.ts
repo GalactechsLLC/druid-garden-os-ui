@@ -1,12 +1,12 @@
 import { defineStore } from 'pinia';
-import type { Disk, MountRequest, Partition } from "@/types/disk";
+import type { DiskInfo, MountRequest, Partition } from "@/types/disk";
 import { get, post } from "@/utils/api";
 
 export const useDiskStore = defineStore('disk', {
     state: () => ({
         loading: false,
         error: null as string | null,
-        disks: [] as Disk[]
+        disks: [] as DiskInfo[]
     }),
 
     actions: {
@@ -18,20 +18,20 @@ export const useDiskStore = defineStore('disk', {
             this.error = null;
 
             try {
-                const disksData = await get<Disk[]>('api/disks/list', {
+                const disksData = await get<DiskInfo[]>('api/system/disks', {
                     errorMessage: 'Failed to fetch disks',
                     showErrorNotification: true
                 });
 
-                this.disks = Array.isArray(disksData) ? disksData.map((disk: Disk) => {
+                this.disks = Array.isArray(disksData) ? disksData.map((disk: DiskInfo) => {
                     const diskWithSize = {
                         ...disk,
-                        size: disk.space_info?.total_space,
-                        used: disk.space_info?.used_space,
+                        size: disk.total,
+                        used: disk.used,
                         path: disk.device
                     };
 
-                    diskWithSize.partitions = disk.partitions.map(partition => ({
+                    diskWithSize.partitions = disk.partitions?.map((partition: Partition) => ({
                         ...partition,
                         loading: false,
                         path: partition.device,
@@ -68,7 +68,7 @@ export const useDiskStore = defineStore('disk', {
             this.error = null;
 
             const disk = this.disks.find(d =>
-                d.partitions.some(p => p.device === request.device_path || p.path === request.device_path)
+                d.partitions?.some(p => p.device === request.device_path)
             );
 
             if (!disk) {
@@ -76,8 +76,8 @@ export const useDiskStore = defineStore('disk', {
                 throw new Error(this.error);
             }
 
-            const partition = disk.partitions.find(p =>
-                p.device === request.device_path || p.path === request.device_path
+            const partition = disk.partitions?.find(p =>
+                p.device === request.device_path
             );
 
             if (!partition) {
@@ -122,8 +122,8 @@ export const useDiskStore = defineStore('disk', {
             let foundPartition: Partition | null = null;
 
             for (const disk of this.disks) {
-                const partition = disk.partitions.find(p =>
-                    p.mount_path === mountPoint || p.mountpoint === mountPoint
+                const partition = disk.partitions?.find(p =>
+                    p.mountpoint === mountPoint
                 );
 
                 if (partition) {

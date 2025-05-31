@@ -71,7 +71,7 @@ export function generateMockEvents(): any[] {
 
 // Try to detect disk type based on path
 export function detectDiskType(disk: DiskInfo): string {
-    const path = disk.path.toLowerCase();
+    const path = disk.dev_path.toLowerCase();
     const name = disk.name.toLowerCase();
 
     if (path.includes('nvme') || name.includes('nvme')) return 'NVMe SSD';

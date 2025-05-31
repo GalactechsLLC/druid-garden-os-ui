@@ -187,7 +187,7 @@ export async function renameItem(oldPath: string, newName: string): Promise<bool
  */
 export async function fetchDiskStats(): Promise<FileSystemStats> {
     try {
-        const disks = await get('api/disks/list', {
+        const disks = await get('api/system/disks', {
             errorMessage: 'Failed to fetch disk information',
             showErrorNotification: false
         })

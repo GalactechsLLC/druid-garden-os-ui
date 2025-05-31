@@ -1,5 +1,5 @@
 // Updated disk utility functions
-import type { Disk, DiskInfo, Partition } from "@/types/disk";
+import type { DiskInfo, Partition } from "@/types/disk";
 
 // Format config label for display
 export function formatConfigLabel(key: string): string {
@@ -41,7 +41,7 @@ export function formatFileSize(size?: number): string {
 }
 
 // Get disk type description
-export function getDiskTypeDescription(disk: Disk | DiskInfo): string {
+export function getDiskTypeDescription(disk: DiskInfo): string {
     // Handle both Disk and DiskInfo types
     if ('model' in disk) {
         // It's a Disk object

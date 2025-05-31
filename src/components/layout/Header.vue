@@ -20,7 +20,7 @@ const isDarkMode = computed(() => themeStore.isDarkMode);
 
 const hasNonSystemDisks = computed(() => {
   return diskStore.disks.some(disk =>
-      disk.partitions.some(partition => {
+      disk.partitions?.some(partition => {
         const mountPath = partition.mount_path || partition.mountpoint;
         return mountPath && !['/home', '/boot', '/', '/var'].includes(mountPath);
       })
