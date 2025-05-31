@@ -5,7 +5,6 @@ import { useUserStore } from '@/stores/userStore';
 import { useThemeStore } from '@/stores/themeStore';
 import { useDiskStore } from '@/stores/diskStore';
 import { useUpdateStore } from '@/stores/updateStore';
-
 const router = useRouter();
 const userStore = useUserStore();
 const themeStore = useThemeStore();
@@ -13,6 +12,7 @@ const diskStore = useDiskStore();
 const updateStore = useUpdateStore();
 const tab = ref('home');
 const showDiskNotification = ref(false);
+const showUpdateModal = ref(false);
 
 const isLoggedIn = computed(() => userStore.isAuthenticated);
 
@@ -58,6 +58,23 @@ const checkDisks = async () => {
 
 const updateNotification = () => {
   showDiskNotification.value = isLoggedIn.value && !hasNonSystemDisks.value;
+};
+
+const handleUpdateClick = () => {
+  if (updateStore.isUpdateAvailable) {
+    showUpdateModal.value = true;
+  } else {
+    updateStore.checkForUpdates();
+  }
+};
+
+const confirmUpdate = () => {
+  showUpdateModal.value = false;
+  updateStore.startUpdate();
+};
+
+const cancelUpdate = () => {
+  showUpdateModal.value = false;
 };
 
 // Watch for changes in authentication state
@@ -123,7 +140,7 @@ onMounted(async () => {
           :outline="updateStore.isUpdateAvailable"
           :color="updateStore.isUpdateAvailable ? 'negative' : 'positive'"
           class="q-mr-sm"
-          @click="updateStore.isUpdateAvailable ? updateStore.startUpdate() : updateStore.checkForUpdates()"
+          @click="handleUpdateClick"
           :loading="updateStore.isCheckingForUpdates || updateStore.isUpdating"
       >
         <q-icon
@@ -258,11 +275,190 @@ onMounted(async () => {
       </q-btn>
     </q-toolbar>
   </q-header>
+
+  <!-- Update Confirmation Modal -->
+  <Teleport to="body">
+    <div v-if="showUpdateModal" class="update-modal-overlay" @click="cancelUpdate">
+      <div class="update-modal" @click.stop>
+        <div class="update-modal-header">
+          <h3>System Update Available</h3>
+        </div>
+
+        <div class="update-modal-content">
+          <div class="version-info">
+            <div class="version-row">
+              <span class="version-label">Current version:</span>
+              <span class="version-value">{{ updateStore.formattedVersion }}</span>
+            </div>
+            <div class="version-row">
+              <span class="version-label">New version:</span>
+              <span class="version-value new">{{ updateStore.formattedRemoteVersion }}</span>
+            </div>
+          </div>
+
+          <div class="warning-box">
+            <q-icon name="warning" size="24px" color="orange" />
+            <p><strong>Important:</strong> Do not turn off the device during the update process.</p>
+          </div>
+        </div>
+
+        <div class="update-modal-actions">
+          <q-btn flat label="Cancel" @click="cancelUpdate" />
+          <q-btn color="primary" label="Update Now" @click="confirmUpdate" />
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style>
 .dark-mode {
   background-color: var(--q-dark-page);
   color: white;
+}
+
+.update-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.update-modal {
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  max-width: 450px;
+  width: 90%;
+  animation: slideIn 0.3s ease-out;
+}
+
+.dark-mode .update-modal {
+  background-color: #1e1e1e;
+  color: white;
+}
+
+.update-modal-header {
+  padding: 20px 24px;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.dark-mode .update-modal-header {
+  border-bottom-color: #424242;
+}
+
+.update-modal-header h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 500;
+}
+
+.update-modal-content {
+  padding: 24px;
+}
+
+.version-info {
+  background-color: #f5f5f5;
+  border-radius: 6px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.dark-mode .version-info {
+  background-color: #2a2a2a;
+}
+
+.version-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.version-row:not(:last-child) {
+  border-bottom: 1px solid #e0e0e0;
+}
+
+.dark-mode .version-row:not(:last-child) {
+  border-bottom-color: #424242;
+}
+
+.version-label {
+  font-weight: 500;
+  color: #666;
+}
+
+.dark-mode .version-label {
+  color: #aaa;
+}
+
+.version-value {
+  font-family: monospace;
+  font-size: 14px;
+}
+
+.version-value.new {
+  color: #4caf50;
+  font-weight: 600;
+}
+
+.warning-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  background-color: #fff3e0;
+  border: 1px solid #ffcc80;
+  border-radius: 6px;
+  padding: 16px;
+}
+
+.dark-mode .warning-box {
+  background-color: rgba(255, 152, 0, 0.1);
+  border-color: rgba(255, 152, 0, 0.3);
+}
+
+.warning-box p {
+  margin: 0;
+  flex: 1;
+  line-height: 1.5;
+}
+
+.update-modal-actions {
+  padding: 16px 24px;
+  border-top: 1px solid #e0e0e0;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.dark-mode .update-modal-actions {
+  border-top-color: #424242;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 </style>
