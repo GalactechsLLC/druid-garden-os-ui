@@ -554,7 +554,7 @@ watch(searchInput, (newValue) => {
           <q-card-section v-else>
             <!-- Only show disks with mounted partitions -->
             <div
-                v-for="disk in diskStore.disks.filter(d => d.partitions.some(p => p.mount_path))"
+                v-for="disk in diskStore.disks.filter(d => d.partitions?.some(p => p.mount_path))"
                 :key="disk.device"
                 class="q-mb-lg"
             >
@@ -568,7 +568,7 @@ watch(searchInput, (newValue) => {
 
               <!-- Only show mounted partitions -->
               <div
-                  v-for="partition in disk.partitions.filter(p => p.mount_path)"
+                  v-for="partition in disk.partitions?.filter(p => p.mount_path)"
                   :key="partition.device"
                   class="q-mb-md"
               >
@@ -623,7 +623,7 @@ watch(searchInput, (newValue) => {
 
                 <q-separator
                     class="q-my-sm"
-                    v-if="disk.partitions.filter(p => p.mount_path).indexOf(partition) < disk.partitions.filter(p => p.mount_path).length - 1"
+                    v-if="disk.partitions != undefined && disk.partitions.filter(p => p.mount_path)?.indexOf(partition) < disk.partitions.filter(p => p.mount_path)?.length - 1"
                 />
               </div>
 

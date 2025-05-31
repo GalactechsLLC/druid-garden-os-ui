@@ -51,7 +51,7 @@ export const useSystemInfoStore = defineStore('systemInfo', () => {
 
             const storageDevices: StorageDevice[] = disksResults.map(disk => ({
                 device: disk.name,
-                mountPoint: disk.path,
+                mountPoint: disk.mount_path,
                 fstype: disk.name.includes('sd') ? 'ext4' : 'xfs',
                 total: disk.total,
                 used: disk.used || 0,

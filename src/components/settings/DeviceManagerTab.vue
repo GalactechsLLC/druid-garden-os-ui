@@ -242,7 +242,7 @@ onMounted(async () => {
             <div class="col">
               <div class="text-subtitle1">{{ disk.model || 'Unknown Device' }}</div>
               <div class="text-caption">
-                {{ DiskUtils.formatSize(disk.space_info?.total_space) }} • {{ DiskUtils.getDiskTypeDescription(disk) }}
+                {{ DiskUtils.formatSize(disk.total) }} • {{ DiskUtils.getDiskTypeDescription(disk) }}
               </div>
             </div>
           </div>

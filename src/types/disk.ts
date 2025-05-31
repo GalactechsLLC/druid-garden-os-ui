@@ -5,7 +5,7 @@ export interface SpaceInfo {
     free_space: number;
 }
 
-// For /api/disks/list endpoint responses
+// For /api/system/disks endpoint responses
 export interface Partition {
     name: string;
     node: string;
@@ -19,31 +19,16 @@ export interface Partition {
     uuid?: string;
     mountpoint?: string | null; // Used in unmountDisk function
     fstype?: string | null; // Used for filesystem detection
-    path?: string; // For reference to device path
     size?: number; // Convenience property for size information
 }
 
-export interface Disk {
-    name: string;
-    node: string;
-    disk_type: string;
-    device: string;
-    file_system: string | null;
-    space_info: SpaceInfo;
-    mount_path: string | null;
-    model: string;
-    vendor: string | null;
-    partitions: Partition[];
-    path?: string;
-    type?: string;
-    size?: number;
-    used?: number;
-}
-
-// For /api/system/disks endpoint responses
 export interface DiskInfo {
-    path: string;
+    dev_path: string;
+    mount_path: string;
     name: string;
+    vendor?: string;
+    model?: string;
+    disk_type?: string;
     total: number;
     used: number;
     usage: {
@@ -53,15 +38,7 @@ export interface DiskInfo {
         total_writen: number;
     };
     device?: string;
-    size?: number;
-    partitions?: {
-        device: string;
-        size: number;
-        filesystem: string;
-        mountpoint?: string;
-        label?: string;
-        uuid?: string;
-    }[];
+    partitions?: Partition[];
 }
 
 export interface MountRequest {
