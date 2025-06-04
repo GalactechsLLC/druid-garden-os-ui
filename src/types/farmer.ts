@@ -204,3 +204,20 @@ export const DEFAULT_FARMER_CONFIG: FarmerConfig = {
         port: 8080,
     },
 };
+
+export interface FarmerTestResult {
+    success: boolean;
+    message?: string;
+}
+
+export interface FarmerActionResult {
+    success: boolean;
+    message?: string;
+    data?: any;
+}
+
+export interface MnemonicGenerationResult {
+    success: boolean;
+    config: FarmerConfig;
+    message?: string;
+}

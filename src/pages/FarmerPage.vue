@@ -2,18 +2,22 @@
 import {ref, onMounted, onUnmounted, computed, watch} from 'vue'
 import { formatBytes } from '@/utils/format'
 import FarmerConfig from "@/components/setup/FarmerConfig.vue";
+import { useRouter } from 'vue-router';
 
 import {useFarmerStore} from "@/stores/farmerStore.ts";
 import {useFarmerChartStore} from "@/stores/farmerChartStore.ts";
 import {useNotificationStore} from "@/stores/notificationStore.ts";
+import {useDiskStore} from "@/stores/diskStore.ts";
 import Notification from "@/components/Notification.vue";
 import FarmerLogs from "@/components/farmer/FarmerLogs.vue";
-// import FarmerChartComponent from "@/components/farmer/FarmerChart.vue";
+import FarmerChartComponent from "@/components/farmer/FarmerChart.vue";
 import { useLogService } from '@/services/farmerLog.ts';
 
+const router = useRouter();
 const notificationStore = useNotificationStore()
 const farmerStore = useFarmerStore()
 const farmerChartStore = useFarmerChartStore()
+const diskStore = useDiskStore()
 
 const farmerConfigRef = ref<any>(null);
 const lastValidPlotCount = ref(0);
@@ -25,6 +29,15 @@ const error = ref<string | null>(null)
 const needsConfigSetup = computed(() => {
   if (farmerStore.isRunning) return false;
   return !farmerStore.canStartFarmer;
+});
+
+const hasNonSystemDisks = computed(() => {
+  return diskStore.disks.some(disk =>
+      disk.partitions?.some(partition => {
+        const mountPath = partition.mount_path || partition.mountpoint;
+        return mountPath && !['/home', '/boot', '/', '/var'].includes(mountPath);
+      })
+  );
 });
 
 const sync = computed(() => {
@@ -56,6 +69,14 @@ const formattedSpace = computed(() => {
   return formatBytes(space.value, 3)
 })
 
+const dataIsReady = computed(() => {
+  return farmerChartStore.historyData &&
+      farmerChartStore.historyData.farmer_records.length > 0;
+});
+
+const goToDeviceSettings = () => {
+  router.push('/settings?tab=devices');
+};
 
 const openFarmerConfigModal = () => {
   farmerConfigRef.value?.open?.();
@@ -70,6 +91,12 @@ const onImportError = (error: string): void => {
 };
 
 async function startFarmerHandler() {
+  // Check if disk is mounted before starting
+  if (!hasNonSystemDisks.value) {
+    notificationStore.warning('Please mount a disk before starting the farmer');
+    return;
+  }
+
   if (!farmerStore.canStartFarmer) {
     notificationStore.error('Cannot start farmer: Invalid configuration or farmer is already running');
     return;
@@ -82,7 +109,7 @@ async function startFarmerHandler() {
     if (result && result.success) {
       window.dispatchEvent(new CustomEvent('farmer-started'));
 
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      setTimeout("", 3000);
 
       const logService = useLogService();
 
@@ -118,11 +145,9 @@ async function startFarmerHandler() {
             if (fetchSuccess && wsConnected) {
               notificationStore.success('Farmer started and connected successfully');
 
-              // Initialize farming activity data
-              // setTimeout(() => {
-              //   farmerChartStore.addActivityHistoryPoint();
-              //   farmerChartStore.updateCumulativeTotals();
-              // }, 1000);
+              // Start chart data collection
+              console.log('🚀 Starting chart data collection from start handler');
+              farmerChartStore.startChartCollection();
 
               break;
             }
@@ -166,6 +191,10 @@ async function stopFarmerHandler() {
       notificationStore.error('Failed to stop farmer');
     } else {
       farmerStore.isRunning = false;
+
+      // Stop chart data collection
+      console.log('🛑 Stopping chart data collection from stop handler');
+      farmerChartStore.stopChartCollection();
     }
   } catch (err) {
     console.error('Error stopping farmer:', err);
@@ -213,11 +242,6 @@ async function fetchAllData() {
     loading.value = false
   }
 }
-
-// const dataIsReady = computed(() => {
-//   return farmerChartStore.historyData &&
-//       farmerChartStore.historyData.farmer_records.length > 0;
-// });
 
 function getTotalPlotCount() {
   const ogCount = farmerStore.farmer.plot_counts.og_plot_count || 0;
@@ -268,38 +292,45 @@ function getTotalPlotSpace() {
   return "0 Bytes";
 }
 
+let refreshInterval: number | null = null;
+
 onMounted(async () => {
-  console.log('Component mounted');
+  console.log('📊 Farmer page mounted');
 
   await farmerStore.checkFarmerStatus();
   await farmerStore.updateConfigTestResult();
+  await diskStore.fetchDisks();
 
   if (farmerStore.isRunning) {
+    console.log('✅ Farmer is running on page load - starting chart collection');
     await fetchAllData();
+    farmerChartStore.startChartCollection();
   } else {
-    console.log('Farmer not running, skipping data fetch');
+    console.log('❌ Farmer not running on page load');
   }
 });
 
-watch(() => farmerStore.isRunning, async (newVal) => {
-  console.log('isRunning changed to:', newVal);
-  if (newVal) {
-    await farmerStore.checkFarmerStatus();
+watch(() => farmerStore.isRunning, async (isRunning, wasRunning) => {
+  console.log(`📊 Farmer state changed: ${wasRunning} → ${isRunning}`);
+
+  if (isRunning && !wasRunning) {
+    console.log('✅ Farmer started - starting chart collection and state refresh');
     await fetchAllData();
-  }
-}, { immediate: false });
+    farmerChartStore.startChartCollection();
 
-let refreshInterval: number | null = null;
+    if (!refreshInterval) {
+      refreshInterval = window.setInterval(async () => {
+        if (farmerStore.isRunning) {
+          await farmerStore.checkFarmerStatus();
+          await fetchFarmerState();
+        }
+      }, 5000); // Refresh every 5 seconds
+    }
+  } else if (!isRunning && wasRunning) {
+    console.log('❌ Farmer stopped - stopping chart collection and state refresh');
+    farmerChartStore.stopChartCollection();
 
-watch(() => farmerStore.isRunning, (isRunning) => {
-  if (isRunning) {
-    refreshInterval = window.setInterval(async () => {
-      if (farmerStore.isRunning) {
-        await farmerStore.checkFarmerStatus();
-        await fetchFarmerState();
-      }
-    }, 5000);
-  } else {
+    // Stop the refresh interval
     if (refreshInterval) {
       clearInterval(refreshInterval);
       refreshInterval = null;
@@ -308,14 +339,41 @@ watch(() => farmerStore.isRunning, (isRunning) => {
 }, { immediate: true });
 
 onUnmounted(() => {
+  console.log('📊 Farmer page unmounted');
+
   if (refreshInterval) {
     clearInterval(refreshInterval);
+    refreshInterval = null;
   }
+
 });
+
 </script>
 
 <template>
   <q-page padding>
+    <!-- Disk Warning Banner -->
+    <q-banner
+        v-if="!hasNonSystemDisks && !farmerStore.isRunning"
+        class="bg-warning text-white q-mb-md"
+        rounded
+    >
+      <template v-slot:avatar>
+        <q-icon name="warning" size="2rem" />
+      </template>
+      <div class="text-subtitle1 text-weight-medium">No disk mounted</div>
+      <div class="text-body2">Please mount a disk before starting the farmer</div>
+      <template v-slot:action>
+        <q-btn
+            flat
+            color="white"
+            label="Go to Device Settings"
+            @click="goToDeviceSettings"
+            icon-right="arrow_forward"
+        />
+      </template>
+    </q-banner>
+
     <div class="row q-mb-md items-center justify-between">
       <div>
         <h5 class="q-mt-none q-mb-xs text-green">Chia Farmer Dashboard</h5>
@@ -331,9 +389,11 @@ onUnmounted(() => {
             color="positive"
             label="Start"
             @click="startFarmerHandler"
-            :disable="!farmerStore.canStartFarmer || farmerStore.processingAction"
+            :disable="!farmerStore.canStartFarmer || farmerStore.processingAction || !hasNonSystemDisks"
             :loading="farmerStore.processingAction"
-        />
+        >
+          <q-tooltip v-if="!hasNonSystemDisks">Please mount a disk first</q-tooltip>
+        </q-btn>
 
         <!-- Stop Button -->
         <q-btn
@@ -481,36 +541,74 @@ onUnmounted(() => {
       </div>
 
       <div class="col-12 col-lg-8">
-        <!-- Farming Activity Chart -->
-        <q-card v-if=farmerStore.isRunning class="q-mb-md">
-          <q-card-section class="bg-green text-white">
+        <!-- Disk Mount Required Card -->
+        <q-card v-if="!hasNonSystemDisks && !farmerStore.isRunning" class="q-mb-md">
+          <q-card-section class="bg-warning text-white">
             <div class="text-h6">
-              <q-icon name="agriculture" /> Farming Active
+              <q-icon name="storage" /> Disk Mount Required
+            </div>
+          </q-card-section>
+          <q-card-section>
+            <div class="text-center q-py-lg">
+              <q-icon name="warning" size="4rem" color="warning" class="q-mb-md" />
+              <div class="text-h6 q-mb-sm">No Disk Mounted</div>
+              <div class="text-body2 text-grey-6 q-mb-lg">
+                You need to mount a disk before you can start farming. Please go to Device Settings to mount a disk.
+              </div>
+              <q-btn
+                  color="warning"
+                  size="lg"
+                  icon="settings"
+                  label="Go to Device Settings"
+                  @click="goToDeviceSettings"
+              />
             </div>
           </q-card-section>
         </q-card>
-<!--        <q-card v-if=farmerStore.isRunning class="q-mb-md">-->
-<!--          <q-card-section class="bg-green text-white">-->
-<!--            <div class="text-h6">-->
-<!--              <q-icon name="agriculture" /> Farming Activity-->
-<!--            </div>-->
-<!--          </q-card-section>-->
 
-<!--          <q-card-section>-->
-<!--            <div>-->
-<!--              <FarmerChartComponent v-if="dataIsReady" />-->
-<!--              <div v-else class="loading-placeholder">Loading farming data...</div>-->
-<!--            </div>-->
-<!--          </q-card-section>-->
-<!--        </q-card>-->
-        <q-card v-else-if="farmerStore.canStartFarmer" class="q-mb-md">
+        <!-- Farming Activity Chart -->
+        <q-card v-if="farmerStore.isRunning" class="q-mb-md">
+          <q-card-section class="bg-green text-white">
+            <div class="text-h6">
+              <q-icon name="agriculture" /> Farming Activity
+            </div>
+          </q-card-section>
+
+          <q-card-section>
+            <!-- Always show the chart component when farmer is running -->
+            <FarmerChartComponent />
+          </q-card-section>
+        </q-card>
+
+        <!-- Start Farmer Card -->
+        <q-card v-else-if="farmerStore.canStartFarmer && hasNonSystemDisks" class="q-mb-md">
           <q-card-section class="bg-green text-white">
             <div class="text-h6">
               <q-icon name="agriculture" /> Start your farmer
             </div>
           </q-card-section>
+          <q-card-section>
+            <div class="text-center q-py-lg">
+              <q-icon name="play_circle" size="4rem" color="positive" class="q-mb-md" />
+              <div class="text-h6 q-mb-sm">Ready to Farm</div>
+              <div class="text-body2 text-grey-6 q-mb-lg">
+                Your farmer is configured and ready to start.
+              </div>
+              <q-btn
+                  color="positive"
+                  size="lg"
+                  icon="play_arrow"
+                  label="Start Farmer"
+                  @click="startFarmerHandler"
+                  :disable="farmerStore.processingAction"
+                  :loading="farmerStore.processingAction"
+              />
+            </div>
+          </q-card-section>
         </q-card>
-        <q-card v-else class="q-mb-md">
+
+        <!-- Configure Farmer Card -->
+        <q-card v-else-if="!farmerStore.canStartFarmer" class="q-mb-md">
           <q-card-section class="bg-green text-white">
             <div class="text-h6">
               <q-icon name="agriculture" /> Configure your farmer

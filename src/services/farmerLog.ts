@@ -1,13 +1,14 @@
 import { ref, onBeforeUnmount } from 'vue';
-import { type LogEntry } from '@/types/farmer';
+import { type LogEntry, type LogLevelValue } from '@/types/farmer';
 import { useFarmerChartStore } from '@/stores/farmerChartStore';
 
 interface LogServiceReturn {
     logs: ReturnType<typeof ref<LogEntry[]>>;
     connectionStatus: ReturnType<typeof ref<'connecting' | 'connected' | 'disconnected' | 'error'>>;
-    connect: (chartStore: ReturnType<typeof useFarmerChartStore>) => void;
+    connect: (chartStore: ReturnType<typeof useFarmerChartStore>, level?: LogLevelValue) => void;
     disconnect: () => void;
     clearLogs: () => void;
+    changeLogLevel: (level: LogLevelValue) => void;
 }
 
 let websocket: WebSocket | null = null;
@@ -15,40 +16,52 @@ const logs = ref<LogEntry[]>([]);
 const connectionStatus = ref<'connecting' | 'connected' | 'disconnected' | 'error'>('disconnected');
 
 const WS_CONFIG = {
-    PORT: 9090,
-    PATH: '/log_stream/info',
+    BASE_PATH: '/farmer/log_stream', // Updated to use new unified API path
     RECONNECT_INTERVAL: 5000, // 5 seconds
-    MAX_RECONNECT_ATTEMPTS: 5
+    MAX_RECONNECT_ATTEMPTS: 5,
+    MAX_LOG_ENTRIES: 1000
 };
 
 export function useLogService(): LogServiceReturn {
     let reconnectAttempts = 0;
     let reconnectTimer: number | null = null;
+    let currentLevel: LogLevelValue = 'INFO';
+    let chartStore: ReturnType<typeof useFarmerChartStore> | null = null;
 
-    function connect(chartStore: ReturnType<typeof useFarmerChartStore>): void {
+    function connect(store: ReturnType<typeof useFarmerChartStore>, level: LogLevelValue = 'INFO'): void {
+        chartStore = store;
+        currentLevel = level.toLowerCase() as LogLevelValue;
+
         if (websocket) {
             disconnect();
         }
 
         reconnectAttempts = 0;
         connectionStatus.value = 'connecting';
-
-        connectWebSocket(chartStore);
+        connectWebSocket();
     }
 
-    function connectWebSocket(chartStore: ReturnType<typeof useFarmerChartStore>): void {
+    function connectWebSocket(): void {
         try {
+            // Use the same host and port as the current page (unified API)
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const hostname = window.location.hostname;
+            const host = window.location.host; // This includes port if different from 80/443
 
-            websocket = new WebSocket(`${protocol}//${hostname}:${WS_CONFIG.PORT}${WS_CONFIG.PATH}`);
+            const wsUrl = `${protocol}//${host}${WS_CONFIG.BASE_PATH}/${currentLevel}`;
+            console.log('Connecting to WebSocket:', wsUrl);
+
+            websocket = new WebSocket(wsUrl);
 
             websocket.onopen = () => {
                 connectionStatus.value = 'connected';
-                console.log('WebSocket connection established');
+                console.log('WebSocket connection established for level:', currentLevel);
                 reconnectAttempts = 0;
 
-                chartStore.updateCumulativeTotals();
+                // Note: No longer calling updateCumulativeTotals as it doesn't exist
+                // The optimized chart store handles data updates automatically
+                if (chartStore) {
+                    console.log('WebSocket connected, chart store will handle data updates automatically');
+                }
             };
 
             websocket.onmessage = (event) => {
@@ -57,15 +70,14 @@ export function useLogService(): LogServiceReturn {
                     logs.value.unshift(logEntry);
 
                     // Keep logs at a reasonable size
-                    if (logs.value.length > 1000) {
-                        logs.value = logs.value.slice(0, 1000);
+                    if (logs.value.length > WS_CONFIG.MAX_LOG_ENTRIES) {
+                        logs.value = logs.value.slice(0, WS_CONFIG.MAX_LOG_ENTRIES);
                     }
 
                     // Process log entry for farmer activity tracking
-                    // if (chartStore) {
-                    //     chartStore.parseAndStoreActivity(logEntry);
-                    //     chartStore.updateCumulativeTotals();
-                    // }
+                    if (chartStore && isActivityLogEntry(logEntry)) {
+                        parseActivityFromLog(logEntry, chartStore);
+                    }
                 } catch (error) {
                     console.error('Error parsing log message:', error);
                 }
@@ -75,8 +87,9 @@ export function useLogService(): LogServiceReturn {
                 connectionStatus.value = 'disconnected';
                 console.log('WebSocket connection closed', event.code, event.reason);
 
+                // Only attempt reconnection for unexpected closures
                 if (event.code !== 1000) {
-                    tryReconnect(chartStore);
+                    tryReconnect();
                 }
             };
 
@@ -87,12 +100,11 @@ export function useLogService(): LogServiceReturn {
         } catch (error) {
             connectionStatus.value = 'error';
             console.error('Error establishing WebSocket connection:', error);
-
-            tryReconnect(chartStore);
+            tryReconnect();
         }
     }
 
-    function tryReconnect(chartStore: ReturnType<typeof useFarmerChartStore>): void {
+    function tryReconnect(): void {
         if (reconnectAttempts < WS_CONFIG.MAX_RECONNECT_ATTEMPTS) {
             reconnectAttempts++;
 
@@ -110,11 +122,29 @@ export function useLogService(): LogServiceReturn {
             reconnectTimer = window.setTimeout(() => {
                 if (connectionStatus.value !== 'connected') {
                     console.log(`Reconnecting... (attempt ${reconnectAttempts}/${WS_CONFIG.MAX_RECONNECT_ATTEMPTS})`);
-                    connectWebSocket(chartStore);
+                    connectWebSocket();
                 }
             }, backoffTime);
         } else {
             console.error(`Failed to reconnect after ${WS_CONFIG.MAX_RECONNECT_ATTEMPTS} attempts`);
+            connectionStatus.value = 'error';
+        }
+    }
+
+    function changeLogLevel(level: LogLevelValue): void {
+        const newLevel = level.toLowerCase() as LogLevelValue;
+
+        if (newLevel !== currentLevel) {
+            currentLevel = newLevel;
+
+            // Reconnect with new level if currently connected
+            if (connectionStatus.value === 'connected' && chartStore) {
+                console.log('Changing log level to:', newLevel);
+                disconnect();
+                setTimeout(() => {
+                    connect(chartStore!, newLevel);
+                }, 100);
+            }
         }
     }
 
@@ -138,6 +168,40 @@ export function useLogService(): LogServiceReturn {
         logs.value = [];
     }
 
+    // Helper function to identify activity-related log entries
+    function isActivityLogEntry(logEntry: LogEntry): boolean {
+        if (!logEntry.message) return false;
+
+        const message = logEntry.message.toLowerCase();
+
+        // Look for farming activity keywords
+        return message.includes('proof') ||
+            message.includes('partial') ||
+            message.includes('signage') ||
+            message.includes('challenge') ||
+            message.includes('plot') ||
+            message.includes('filter');
+    }
+
+    // Parse farming activity from log entries
+    function parseActivityFromLog(logEntry: LogEntry, chartStore: ReturnType<typeof useFarmerChartStore>): void {
+        try {
+            const message = logEntry.message;
+
+            // Trigger stats refresh when important farming events occur
+            if (message.includes('Proof found')) {
+                // Delay to ensure backend has processed the event
+                setTimeout(() => chartStore.fetchFarmerStats(), 1000);
+            } else if (message.includes('Partial found')) {
+                setTimeout(() => chartStore.fetchFarmerStats(), 1000);
+            } else if (message.includes('plots passed filter')) {
+                setTimeout(() => chartStore.fetchFarmerStats(), 2000);
+            }
+        } catch (error) {
+            console.error('Error parsing activity from log:', error);
+        }
+    }
+
     onBeforeUnmount(() => {
         disconnect();
     });
@@ -147,6 +211,7 @@ export function useLogService(): LogServiceReturn {
         connectionStatus,
         connect,
         disconnect,
-        clearLogs
+        clearLogs,
+        changeLogLevel
     };
 }

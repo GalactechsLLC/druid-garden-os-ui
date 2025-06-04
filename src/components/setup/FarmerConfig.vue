@@ -369,7 +369,7 @@
                             v-model="recomputeHost"
                             outlined
                             hint=""
-                            placeholder="proxy.recompute.io"
+                            placeholder=""
                             :disable="saving"
                         />
                       </div>
@@ -380,7 +380,7 @@
                             type="number"
                             outlined
                             hint=""
-                            placeholder="11988"
+                            placeholder="0"
                             :disable="saving"
                         />
                       </div>
@@ -469,9 +469,8 @@ import { useConfigStore } from '@/stores/configStore';
 import { useNotificationStore } from '@/stores/notificationStore';
 import type { FarmerConfig } from '@/types/farmer';
 import {
-  validateMnemonic,
-  setupWithMnemonic,
-  scanDrivesForConfig,
+  generateConfigFromMnemonic,
+  scanForLegacyConfigs,
 } from '@/services/farmer';
 
 const emit = defineEmits(['update:modelValue', 'import-success', 'import-error']);
@@ -525,10 +524,11 @@ function createDefaultConfig(): FarmerConfig {
       druid_garden: null,
       custom_config: {
         plot_directories: ['/mnt'],
-        parallel_read: false,
-        max_cpu_cores: 0,
-        max_cuda_devices: 0,
-        max_opencl_devices: 0,
+        parallel_read: true,
+        plot_search_depth: 2,
+        max_cpu_cores: -1,
+        max_cuda_devices: -1,
+        max_opencl_devices: -1,
         cuda_device_list: [],
         opencl_device_list: [],
         recompute_host: '',
@@ -551,7 +551,8 @@ function ensureCustomConfig(config: any) {
   if (!config.harvester_configs.custom_config) {
     config.harvester_configs.custom_config = {
       plot_directories: ['/mnt'],
-      parallel_read: false,
+      parallel_read: true,
+      plot_search_depth: 2,
       max_cpu_cores: 0,
       max_cuda_devices: 0,
       max_opencl_devices: 0,
@@ -614,6 +615,17 @@ const initializeFarmerConfig = async () => {
     farmerConfig.value = createDefaultConfig();
     plotDirectories.value = ['/mnt'];
     return false;
+  }
+};
+
+// Helper function to refresh farmer store state after config changes
+const refreshFarmerState = async () => {
+  try {
+    await farmerStore.checkFarmerStatus();
+    await farmerStore.updateConfigTestResult();
+    console.log('Farmer state refreshed after config update');
+  } catch (err) {
+    console.error('Failed to refresh farmer state:', err);
   }
 };
 
@@ -757,26 +769,43 @@ async function saveExistingConfigAndTest() {
 
   try {
     let parsedConfig = await parseJsonConfig(existingConfigJson.value);
-
     parsedConfig = ensureCustomConfig(parsedConfig);
 
+    // Update config silently - no notifications from this call
     await farmerStore.updateConfig(parsedConfig);
-    notificationStore.success('Configuration saved');
+
+    // Refresh farmer state to update UI reactivity
+    await refreshFarmerState();
 
     const testResponse = await farmerStore.testFarmerConfig();
 
     const isSuccessful = typeof testResponse === 'boolean' ? testResponse :
-        (testResponse && typeof testResponse === 'object' && 'success' in testResponse) ?
-            testResponse.success : false;
+        (testResponse && typeof testResponse === 'object' && true && 'success' in testResponse) ?
+            (testResponse as any).success : false;
 
     if (isSuccessful) {
-      notificationStore.success('Connection test successful');
+      // Check if the config has a valid payout address
+      const configPayoutAddress = parsedConfig.payout_address || '';
+      const hasValidPayoutAddress = configPayoutAddress &&
+          configPayoutAddress.trim() !== '' &&
+          configPayoutAddress !== 'mainnet';
+
+      if (!hasValidPayoutAddress) {
+        // If no valid payout address, show notification and go to payout step
+        notificationStore.info('Configuration saved and tested successfully. Please configure your payout address.');
+        payoutAddress.value = '';
+        step.value = 2;
+        return; // Don't close the modal, proceed to payout setup
+      }
+
+      // Single success notification - this is the ONLY notification that should show
+      notificationStore.success('Farmer configuration saved and tested successfully');
       showModal.value = false;
       emit('import-success', 'Farmer configuration saved and tested successfully');
       resetForm();
     } else {
       const message = typeof testResponse === 'object' && testResponse && 'message' in testResponse
-          ? testResponse.message
+          ? (testResponse as any).message
           : 'Connection test failed. Please check your configuration.';
       notificationStore.error(message);
     }
@@ -805,7 +834,7 @@ async function scanForLegacyConfig() {
   scanResults.value = [];
 
   try {
-    const data = await scanDrivesForConfig();
+    const data = await scanForLegacyConfigs();
 
     console.log('Scan API response:', data);
 
@@ -827,14 +856,14 @@ async function scanForLegacyConfig() {
         }));
       }
 
-      notificationStore.success(`Scan complete. Found ${scanResults.value.length} configurations.`);
+      // Single success notification handled by the service
     }
 
     scanComplete.value = true;
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Failed to scan for legacy configurations';
     error.value = errorMessage;
-    notificationStore.error(errorMessage);
+    // Error notification handled by the service
   } finally {
     scanning.value = false;
   }
@@ -847,14 +876,7 @@ async function authenticate() {
   try {
     if (authMethod.value === 'mnemonic') {
       try {
-        const validationResult = await validateMnemonic(mnemonicInput.value);
-        console.log('Mnemonic validation result:', validationResult);
-
-        if (!validationResult.valid) {
-          throw new Error(validationResult.message || 'Invalid mnemonic phrase');
-        }
-
-        const setupResult = await setupWithMnemonic(mnemonicInput.value);
+        const setupResult = await generateConfigFromMnemonic(mnemonicInput.value);
         console.log('Setup with mnemonic result:', setupResult);
 
         if (!setupResult.success) {
@@ -862,16 +884,37 @@ async function authenticate() {
         }
 
         let resultConfig = setupResult.config;
+        if (!resultConfig) {
+          throw new Error('No configuration returned from mnemonic generation');
+        }
+
         resultConfig = ensureCustomConfig(resultConfig);
         farmerConfig.value = resultConfig;
-        if (resultConfig.harvester_configs?.custom_config?.plot_directories) {
+
+        if (resultConfig && resultConfig.harvester_configs?.custom_config?.plot_directories) {
           plotDirectories.value = [...resultConfig.harvester_configs.custom_config.plot_directories];
         }
         if (farmerConfig.value.payout_address) {
           payoutAddress.value = farmerConfig.value.payout_address;
         }
 
-        step.value = 2;
+        // Refresh farmer state
+        await refreshFarmerState();
+
+        // Check if we have a valid payout address
+        const hasValidPayoutAddress = payoutAddress.value &&
+            payoutAddress.value.trim() !== '' &&
+            payoutAddress.value !== 'mainnet';
+
+        if (hasValidPayoutAddress) {
+          // Skip to connection settings if payout is already configured
+          step.value = 3;
+          notificationStore.info('Mnemonic setup completed. Payout address found, proceeding to connection settings.');
+        } else {
+          // Go to payout settings if no valid payout address
+          step.value = 2;
+          notificationStore.info('Mnemonic setup completed. Please configure your payout address.');
+        }
       } catch (err) {
         error.value = err instanceof Error ? err.message : 'Invalid mnemonic configuration';
         notificationStore.error(error.value);
@@ -888,7 +931,23 @@ async function authenticate() {
           payoutAddress.value = farmerConfig.value.payout_address;
         }
 
-        step.value = 2;
+        // Refresh farmer state
+        await refreshFarmerState();
+
+        // Check if we have a valid payout address
+        const hasValidPayoutAddress = payoutAddress.value &&
+            payoutAddress.value.trim() !== '' &&
+            payoutAddress.value !== 'mainnet';
+
+        if (hasValidPayoutAddress) {
+          // Skip to connection settings if payout is already configured
+          step.value = 3;
+          notificationStore.info('Configuration scan completed. Payout address found, proceeding to connection settings.');
+        } else {
+          // Go to payout settings if no valid payout address
+          step.value = 2;
+          notificationStore.info('Configuration scan completed. Please configure your payout address.');
+        }
       } catch (err) {
         const errorMessage = err instanceof Error ? err.message : 'Error during scan process';
         error.value = errorMessage;
@@ -926,6 +985,8 @@ async function importYamlAndContinue() {
     parsedConfig = ensureCustomConfig(parsedConfig);
 
     await farmerStore.updateConfig(parsedConfig);
+
+    // Single success notification
     notificationStore.success('YAML configuration imported successfully');
 
     farmerConfig.value = parsedConfig;
@@ -941,7 +1002,23 @@ async function importYamlAndContinue() {
 
     console.log('YAML import - final farmerConfig:', farmerConfig.value);
 
-    step.value = 2;
+    // Refresh farmer state
+    await refreshFarmerState();
+
+    // Check if we have a valid payout address
+    const hasValidPayoutAddress = payoutAddress.value &&
+        payoutAddress.value.trim() !== '' &&
+        payoutAddress.value !== 'mainnet';
+
+    if (hasValidPayoutAddress) {
+      // Skip to connection settings if payout is already configured
+      step.value = 3;
+      notificationStore.info('YAML import completed. Payout address found, proceeding to connection settings.');
+    } else {
+      // Go to payout settings if no valid payout address
+      step.value = 2;
+      notificationStore.info('YAML import completed. Please configure your payout address.');
+    }
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Invalid YAML configuration';
     error.value = errorMessage;
@@ -998,8 +1075,11 @@ async function saveAndTestConnection() {
       farmerConfig.value.harvester_configs.custom_config.recompute_port = recomputePort.value;
     }
 
+    // Update config silently - no notifications from this call
     await farmerStore.updateConfig(farmerConfig.value);
-    notificationStore.success('Configuration saved');
+
+    // Refresh farmer state to update UI reactivity
+    await refreshFarmerState();
 
     const testResponse = await farmerStore.testFarmerConfig();
 
@@ -1008,13 +1088,14 @@ async function saveAndTestConnection() {
             testResponse.success : false;
 
     if (isSuccessful) {
-      notificationStore.success('Connection test successful');
+      // Single success notification - this is the ONLY notification that should show
+      notificationStore.success('Farmer configuration saved and tested successfully');
       showModal.value = false;
       emit('import-success', 'Farmer configuration saved and tested successfully');
       resetForm();
     } else {
       const message = typeof testResponse === 'object' && testResponse && 'message' in testResponse
-          ? testResponse.message
+          ? (testResponse as any).message
           : 'Connection test failed. Please check your configuration.';
       notificationStore.error(message);
     }

@@ -1,7 +1,6 @@
 import {defineStore} from 'pinia';
 import {computed, nextTick, ref} from 'vue';
 import {
-    type BlockchainState,
     DEFAULT_FARMER_CONFIG,
     type FarmerConfig,
     type FarmerState,
@@ -14,9 +13,9 @@ import {
     testFarmerConfig,
     updateFarmerConfig
 } from '@/services/farmer';
-import {validateFarmerConfig} from '@/utils/farmer';
 import {useNotificationStore} from '@/stores/notificationStore';
 import {get} from "@/utils/api.ts";
+import { useFarmerChartStore } from '@/stores/farmerChartStore';
 
 export const useFarmerStore = defineStore('farmer', () => {
     // Get notification store for showing messages
@@ -89,8 +88,8 @@ export const useFarmerStore = defineStore('farmer', () => {
         try {
             const result = await testFarmerConfig();
             configTestResult.value = typeof result === 'boolean' ? result :
-                (result && typeof result === 'object' && 'success' in result) ?
-                    result.success : false;
+                (result && typeof result === 'object' && true && 'success' in result) ?
+                    (result as any).success : false;
         } catch (err) {
             configTestResult.value = false;
             error.value = err instanceof Error ? err.message : 'Failed to test farmer config';
@@ -150,7 +149,6 @@ export const useFarmerStore = defineStore('farmer', () => {
             farmer.value.config = newConfig;
 
             configValid.value = true;
-            notificationStore.success('Farmer configuration updated successfully');
             return true;
         } catch (err) {
             error.value = err instanceof Error ? err.message : 'Failed to update farmer configuration';
@@ -175,6 +173,13 @@ export const useFarmerStore = defineStore('farmer', () => {
                 await nextTick();
 
                 notificationStore.success('Farmer started successfully');
+                try {
+                    const chartStore = useFarmerChartStore();
+                    chartStore.startChartCollection();
+                    console.log('✅ Chart data collection started from farmer store');
+                } catch (error) {
+                    console.error('Failed to start chart collection:', error);
+                }
                 return { success: true };
             } catch (apiError) {
                 console.error('API error:', apiError);
@@ -201,7 +206,14 @@ export const useFarmerStore = defineStore('farmer', () => {
 
                 await nextTick();
 
-                notificationStore.success('Farmer stopped successfully');
+                notificationStore.success('Farmer stopped successfully')
+                try {
+                    const chartStore = useFarmerChartStore();
+                    chartStore.stopChartCollection();
+                    console.log('❌ Chart data collection stopped from farmer store');
+                } catch (error) {
+                    console.error('Failed to stop chart collection:', error);
+                }
                 return { success: true };
             } catch (apiError) {
                 console.error('API error:', apiError);
