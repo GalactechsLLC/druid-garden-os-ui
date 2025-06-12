@@ -208,7 +208,7 @@ async function fetchFarmerState() {
 
     const ogCount = farmerStore.farmer.plot_counts.og_plot_count || 0;
     const nftCount = farmerStore.farmer.plot_counts.nft_plot_count || 0;
-    const compressedCount = farmerStore.farmer.plot_counts.compresses_plot_count || 0;
+    const compressedCount = farmerStore.farmer.plot_counts.compressed_plot_count || 0;
     const total = ogCount + nftCount + compressedCount;
 
     if (total > 0) {
@@ -222,7 +222,6 @@ async function fetchFarmerState() {
 
   } catch (err) {
     console.error('Error fetching farmer state:', err);
-    notificationStore.error('An unexpected error occurred while fetching the farmer state');
   }
 }
 
@@ -246,7 +245,7 @@ async function fetchAllData() {
 function getTotalPlotCount() {
   const ogCount = farmerStore.farmer.plot_counts.og_plot_count || 0;
   const nftCount = farmerStore.farmer.plot_counts.nft_plot_count || 0;
-  const compressedCount = farmerStore.farmer.plot_counts.compresses_plot_count || 0;
+  const compressedCount = farmerStore.farmer.plot_counts.compressed_plot_count || 0;
   const total = ogCount + nftCount + compressedCount;
 
   if (total > 0) {

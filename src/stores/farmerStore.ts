@@ -29,7 +29,7 @@ export const useFarmerStore = defineStore('farmer', () => {
         plot_counts: {
             og_plot_count: 0,
             nft_plot_count: 0,
-            compresses_plot_count: 0,
+            compressed_plot_count: 0,
             invalid_plot_count: 0,
             total_plot_space: 0
         },
@@ -288,7 +288,7 @@ export const useFarmerStore = defineStore('farmer', () => {
 
     function refreshData() {
         fetchAllData();
-        notificationStore.success('Data refreshed');
+        // notificationStore.success('Data refreshed');
     }
 
     function resetConfig() {

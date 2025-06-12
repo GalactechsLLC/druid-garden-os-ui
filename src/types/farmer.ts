@@ -62,7 +62,7 @@ export interface LogLevelOption {
     value: LogLevelValue;
 }
 
-export const MAX_HISTORY_POINTS = 100;
+export const MAX_HISTORY_POINTS = 1000;
 
 export const logLevels: LogLevelOption[] = [
     { label: 'All', value: 'ALL' },
@@ -75,20 +75,28 @@ export const logLevels: LogLevelOption[] = [
 
 export interface FarmerActivity {
     passedFilter: {
-        og: { processed: number, total: number },
-        nft: { processed: number, total: number },
-        compressed: { processed: number, total: number }
-    },
-    proofsFound: number,
+        og: { processed: number; total: number };
+        nft: { processed: number; total: number };
+        compressed: { processed: number; total: number };
+    };
+    proofsFound: number;
     partialsFound: {
-        nft: number,
-        compressed: number
-    }
+        nft: number;
+        compressed: number;
+    };
 }
 
 export interface FarmerActivityRecord {
     timestamp: Date;
     activity: FarmerActivity;
+    metadata?: {
+        challenge_hash: string;
+        sp_hash: string;
+        full_node_height: number;
+        full_node_difficulty: number;
+        full_node_synced: boolean;
+        total_plot_space: number;
+    };
 }
 
 export interface FarmerState {
@@ -101,7 +109,7 @@ export interface FarmerState {
 export interface PlotCounts {
     og_plot_count: number;
     nft_plot_count: number;
-    compresses_plot_count: number;
+    compressed_plot_count: number;
     invalid_plot_count: number;
     total_plot_space: number;
 }

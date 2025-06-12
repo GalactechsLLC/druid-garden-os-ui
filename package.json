@@ -15,7 +15,9 @@
   },
   "dependencies": {
     "@quasar/extras": "^1.16.17",
+    "@types/chart.js": "^4.0.1",
     "apexcharts": "^4.5.0",
+    "chart.js": "^4.4.9",
     "deep-copy-ts": "^0.5.4",
     "jwt-decode": "^4.0.0",
     "ofetch": "^1.4.1",

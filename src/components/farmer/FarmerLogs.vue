@@ -131,11 +131,11 @@ import {useFarmerChartStore} from "@/stores/farmerChartStore";
 const farmerChartStore = useFarmerChartStore();
 
 // State
-const selectedLogLevel = ref<LogLevelOption>(logLevels[3]); // Default to INFO
+const selectedLogLevel = ref<LogLevelOption>(logLevels[3]);
 const reconnecting = ref(false);
 const autoScroll = ref(true);
 const isScrolledToBottom = ref(true);
-const showTarget = ref(false); // Toggle to show/hide target info
+const showTarget = ref(false);
 
 // Refs
 const logsContainer = ref<HTMLElement>();

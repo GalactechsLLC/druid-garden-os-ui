@@ -1,15 +1,11 @@
-import { defineStore } from 'pinia';
-import { computed, ref, watch } from 'vue';
-import {
-    type FarmerActivity,
-    type FarmerActivityRecord,
-    MAX_HISTORY_POINTS
-} from "@/types/farmer";
-import { getFarmerStats, getFarmerStatsRange } from '@/services/farmer';
-import { deepCopy } from "deep-copy-ts";
+import {defineStore} from 'pinia';
+import {computed, ref} from 'vue';
+import {type FarmerActivity, type FarmerActivityRecord, MAX_HISTORY_POINTS} from "@/types/farmer";
+import {getFarmerStats} from '@/services/farmer';
+import {deepCopy} from "deep-copy-ts";
 import {useFarmerStore} from "@/stores/farmerStore.ts";
 
-// Updated type for the new API response format (object with numeric keys)
+// Updated type for the API response format (array of objects)
 interface FarmerStatsResponseItem {
     challenge_hash: string;
     sp_hash: string;
@@ -19,7 +15,7 @@ interface FarmerStatsResponseItem {
     nft_passed_filter: number;
     nft_plot_count: number;
     compressed_passed_filter: number;
-    compresses_plot_count: number;
+    compressed_plot_count: number;
     invalid_plot_count: number;
     proofs_found: number;
     total_plot_space: number;
@@ -29,8 +25,8 @@ interface FarmerStatsResponseItem {
     gathered: string;
 }
 
-// API now returns an object with numeric keys instead of an array
-type FarmerStatsResponse = Record<string, FarmerStatsResponseItem>;
+// API returns an array of FarmerStatsResponseItem
+type FarmerStatsResponse = FarmerStatsResponseItem[];
 
 export const useFarmerChartStore = defineStore('farmerChart', () => {
     // Current activity state (most recent data point)
@@ -59,14 +55,33 @@ export const useFarmerChartStore = defineStore('farmerChart', () => {
 
     // Chart update optimization
     const chartUpdateId = ref(0);
-    const lastHistoryLength = ref(0);
 
     // Computed properties
     const activity = computed(() => currentActivity.value);
 
     // Polling management
     let pollInterval: number | null = null;
-    const DEFAULT_POLL_INTERVAL = 10000; // 10 seconds
+
+    const POLLING_INTERVALS = {
+        FAST: 1000,          // 1 second for real-time updates during farming
+        NORMAL: 5000,        // 5 seconds for normal monitoring
+        SLOW: 10000,         // 10 seconds when idle
+        STOPPED: 30000       // 30 seconds when farmer is stopped
+    };
+
+// Add these new state variables after the existing ref declarations
+    const currentPollInterval = ref(POLLING_INTERVALS.NORMAL);
+    const lastActivityTime = ref<Date | null>(null);
+    const consecutiveEmptyPolls = ref(0);
+
+    const isFetching = ref(false);
+    const pendingFetchPromise = ref<Promise<void> | null>(null);
+    const fetchQueue = ref<number>(0);
+    const lastSuccessfulFetch = ref<Date | null>(null);
+
+    const REQUEST_TIMEOUT = 10000; // 10 seconds
+    const MAX_RETRIES = 3;
+    let currentRetryCount = 0;
 
     // Helper functions
     function convertApiTimestamp(gathered: string): Date {
@@ -99,7 +114,7 @@ export const useFarmerChartStore = defineStore('farmerChart', () => {
                 },
                 compressed: {
                     processed: apiData.compressed_passed_filter || 0,
-                    total: apiData.compresses_plot_count || 0
+                    total: apiData.compressed_plot_count || 0
                 }
             },
             proofsFound: apiData.proofs_found || 0,
@@ -115,7 +130,7 @@ export const useFarmerChartStore = defineStore('farmerChart', () => {
             nft_passed_filter: apiData.nft_passed_filter,
             nft_plot_count: apiData.nft_plot_count,
             compressed_passed_filter: apiData.compressed_passed_filter,
-            compresses_plot_count: apiData.compresses_plot_count,
+            compressed_plot_count: apiData.compressed_plot_count,
             proofs_found: apiData.proofs_found
         });
 
@@ -124,55 +139,151 @@ export const useFarmerChartStore = defineStore('farmerChart', () => {
         return activity;
     }
 
-    function isDuplicateEntry(newTimestamp: Date, newChallengeHash: string): boolean {
+    function isDuplicateEntry(newChallengeHash: string, newSpHash: string): boolean {
         return historyData.value.farmer_records.some(record => {
-            const timeDiff = Math.abs(record.timestamp.getTime() - newTimestamp.getTime());
-            return timeDiff < 1000; // 1 second tolerance for duplicates
+            // Check if we have metadata to compare hashes
+            return record.metadata &&
+                record.metadata.challenge_hash === newChallengeHash &&
+                record.metadata.sp_hash === newSpHash;
         });
     }
 
     async function fetchFarmerStats(): Promise<void> {
+        // Prevent multiple concurrent requests
+        if (isFetching.value) {
+            console.log('📊 Fetch already in progress, skipping...');
+            fetchQueue.value++;
+
+            // If there's a pending promise, wait for it instead of creating a new one
+            if (pendingFetchPromise.value) {
+                try {
+                    await pendingFetchPromise.value;
+                } catch (error) {
+                    // Ignore errors from pending promise
+                }
+            }
+            return;
+        }
+
+        // Set fetching flag and create promise
+        isFetching.value = true;
+        fetchQueue.value = 0;
+
+        const fetchPromise = performFetch();
+        pendingFetchPromise.value = fetchPromise;
+
+        try {
+            await fetchPromise;
+        } finally {
+            isFetching.value = false;
+            pendingFetchPromise.value = null;
+
+            // If requests were queued while we were fetching, handle them
+            if (fetchQueue.value > 0) {
+                console.log(`📊 Processing ${fetchQueue.value} queued requests`);
+                // Delay slightly to prevent immediate spam
+                setTimeout(() => {
+                    if (!isFetching.value) {
+                        fetchFarmerStats();
+                    }
+                }, 100);
+            }
+        }
+    }
+
+    async function performFetch(): Promise<void> {
         try {
             isLoading.value = true;
             lastError.value = null;
 
-            const data: FarmerStatsResponse = await getFarmerStats();
+            // Add timeout to prevent hanging requests
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => {
+                controller.abort();
+            }, REQUEST_TIMEOUT);
 
-            if (!data || typeof data !== 'object' || Object.keys(data).length === 0) {
-                // This is normal when farmer is not running
+            let data: FarmerStatsResponse;
+
+            try {
+                data = await getFarmerStats();
+                clearTimeout(timeoutId);
+                currentRetryCount = 0; // Reset retry count on success
+            } catch (fetchError) {
+                clearTimeout(timeoutId);
+
+                // Handle retry logic for failed requests
+                if (currentRetryCount < MAX_RETRIES) {
+                    currentRetryCount++;
+                    console.log(`📊 Fetch failed, retrying (${currentRetryCount}/${MAX_RETRIES})...`);
+
+                    // Exponential backoff
+                    const delay = Math.min(1000 * Math.pow(2, currentRetryCount - 1), 5000);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+
+                    return performFetch(); // Recursive retry
+                }
+
+                throw fetchError; // Re-throw after max retries
+            }
+
+            if (!data || !Array.isArray(data) || data.length === 0) {
+                consecutiveEmptyPolls.value++;
+                console.log(`📊 No farmer stats data available (${consecutiveEmptyPolls.value} consecutive empty polls)`);
+
+                // Slow down polling if we keep getting empty results
+                if (consecutiveEmptyPolls.value > 3 && currentPollInterval.value < POLLING_INTERVALS.SLOW) {
+                    console.log('📊 Multiple empty polls detected, slowing down polling');
+                    startPolling(POLLING_INTERVALS.SLOW);
+                }
                 return;
             }
 
-            console.log('🔍 DEBUG: Raw API response:', data);
+            console.log('🔍 DEBUG: Raw API response (array):', data);
+            console.log('🔍 DEBUG: Processing', data.length, 'entries');
 
             let newEntriesAdded = 0;
             let latestEntry: FarmerStatsResponseItem | null = null;
             let latestTimestamp: Date | null = null;
+            let hasNewActivity = false;
 
-            // Convert object to array and process entries
-            const entries = Object.entries(data).map(([key, value]) => ({
-                index: parseInt(key),
-                data: value
-            }));
-
-            // Sort by index to process in order
-            entries.sort((a, b) => a.index - b.index);
-
-            console.log('🔍 DEBUG: Processing entries:', entries.length);
-
-            entries.forEach(({ index, data: apiData }) => {
+            // Process each entry in the array
+            data.forEach((apiData, index) => {
                 try {
                     const timestamp = convertApiTimestamp(apiData.gathered);
 
-                    // Check for duplicates using challenge hash and timestamp
-                    const isDuplicate = isDuplicateEntry(timestamp, apiData.challenge_hash);
+                    const isDuplicate = isDuplicateEntry(apiData.challenge_hash, apiData.sp_hash);
 
                     if (!isDuplicate) {
                         const activity = convertApiResponseToActivity(apiData);
 
+                        // Check if this entry has actual farming activity
+                        const hasActivity = activity.passedFilter.og.processed > 0 ||
+                            activity.passedFilter.nft.processed > 0 ||
+                            activity.passedFilter.compressed.processed > 0 ||
+                            activity.proofsFound > 0;
+
+                        if (hasActivity) {
+                            hasNewActivity = true;
+                            lastActivityTime.value = timestamp;
+                            console.log('⚡ New farming activity detected!', {
+                                og: activity.passedFilter.og.processed,
+                                nft: activity.passedFilter.nft.processed,
+                                compressed: activity.passedFilter.compressed.processed,
+                                proofs: activity.proofsFound
+                            });
+                        }
+
                         const activityRecord: FarmerActivityRecord = {
                             timestamp,
-                            activity: deepCopy(activity)
+                            activity: deepCopy(activity),
+                            metadata: {
+                                challenge_hash: apiData.challenge_hash,
+                                sp_hash: apiData.sp_hash,
+                                full_node_height: apiData.full_node_height,
+                                full_node_difficulty: apiData.full_node_difficulty,
+                                full_node_synced: apiData.full_node_synced,
+                                total_plot_space: apiData.total_plot_space
+                            }
                         };
 
                         historyData.value.farmer_records.push(activityRecord);
@@ -180,6 +291,8 @@ export const useFarmerChartStore = defineStore('farmerChart', () => {
 
                         console.log('📊 Added new record:', {
                             timestamp: timestamp.toISOString(),
+                            challenge_hash: apiData.challenge_hash.substring(0, 10) + '...',
+                            sp_hash: apiData.sp_hash.substring(0, 10) + '...',
                             og_processed: activity.passedFilter.og.processed,
                             nft_processed: activity.passedFilter.nft.processed,
                             compressed_processed: activity.passedFilter.compressed.processed,
@@ -191,11 +304,31 @@ export const useFarmerChartStore = defineStore('farmerChart', () => {
                             latestEntry = apiData;
                             latestTimestamp = timestamp;
                         }
+                    } else {
+                        console.log('📊 Skipping duplicate entry:', {
+                            timestamp: timestamp.toISOString(),
+                            challenge_hash: apiData.challenge_hash.substring(0, 10) + '...',
+                            sp_hash: apiData.sp_hash.substring(0, 10) + '...'
+                        });
                     }
                 } catch (entryError) {
                     console.error('Error processing farmer stats entry:', entryError);
                 }
             });
+
+            // Reset consecutive empty polls counter if we got data
+            if (newEntriesAdded > 0) {
+                consecutiveEmptyPolls.value = 0;
+                lastSuccessfulFetch.value = new Date();
+            }
+
+            // Adjust polling speed based on activity
+            if (hasNewActivity && currentPollInterval.value > POLLING_INTERVALS.FAST) {
+                console.log('⚡ Switching to fast polling due to new activity');
+                startPolling(POLLING_INTERVALS.FAST);
+            } else if (!hasNewActivity && newEntriesAdded === 0) {
+                consecutiveEmptyPolls.value++;
+            }
 
             // Only update if we added new entries
             if (newEntriesAdded > 0) {
@@ -221,15 +354,17 @@ export const useFarmerChartStore = defineStore('farmerChart', () => {
 
                 console.log(`✅ Added ${newEntriesAdded} new entries, total: ${historyData.value.farmer_records.length}`);
             } else {
-                console.log('📊 No new entries to add');
+                console.log('📊 No new entries to add (all were duplicates)');
             }
 
             lastFetchTime.value = new Date();
 
         } catch (error) {
+            consecutiveEmptyPolls.value++;
+            console.error('📊 Fetch error after retries:', error);
+
             // Don't log errors when farmer is not running - this is expected
             if (error instanceof Error && !error.message.includes('farmer/stats')) {
-                console.error('Error fetching farmer stats:', error);
                 lastError.value = error.message;
             }
         } finally {
@@ -265,21 +400,62 @@ export const useFarmerChartStore = defineStore('farmerChart', () => {
     }
 
     // Polling management
-    function startPolling(intervalMs: number = DEFAULT_POLL_INTERVAL): void {
+    function startPolling(intervalMs?: number): void {
         // Don't start multiple intervals
         if (pollInterval) {
-            return;
+            stopPolling();
         }
 
-        console.log(`🔄 Starting farmer stats polling every ${intervalMs}ms`);
+        // Use provided interval or determine smart interval
+        const interval = intervalMs || getSmartPollInterval();
+        currentPollInterval.value = interval;
 
-        // Initial fetch (will fail silently if farmer not running)
+        console.log(`🔄 Starting farmer stats polling every ${interval}ms`);
+
+        // Initial fetch
         fetchFarmerStats();
 
         // Set up interval
         pollInterval = setInterval(() => {
             fetchFarmerStats();
-        }, intervalMs);
+        }, interval);
+    }
+
+// Add this new function for smart polling
+    function getSmartPollInterval(): number {
+        const farmerStore = useFarmerStore();
+
+        // If farmer is not running, poll slowly
+        if (!farmerStore.isRunning) {
+            return POLLING_INTERVALS.STOPPED;
+        }
+
+        // If we recently had activity, poll fast
+        if (lastActivityTime.value) {
+            const timeSinceActivity = Date.now() - lastActivityTime.value.getTime();
+            if (timeSinceActivity < 30000) { // 30 seconds
+                return POLLING_INTERVALS.FAST;
+            }
+        }
+
+        // If we've had several empty polls in a row, slow down
+        if (consecutiveEmptyPolls.value > 5) {
+            return POLLING_INTERVALS.SLOW;
+        }
+
+        // Default to normal speed
+        return POLLING_INTERVALS.NORMAL;
+    }
+
+// Add these new control functions
+    function enableFastPolling(): void {
+        console.log('⚡ Enabling fast polling (1 second intervals)');
+        startPolling(POLLING_INTERVALS.FAST);
+    }
+
+    function enableNormalPolling(): void {
+        console.log('📊 Enabling normal polling (5 second intervals)');
+        startPolling(POLLING_INTERVALS.NORMAL);
     }
 
     function stopPolling(): void {
@@ -287,6 +463,18 @@ export const useFarmerChartStore = defineStore('farmerChart', () => {
             clearInterval(pollInterval);
             pollInterval = null;
         }
+
+        // Wait for any in-flight requests to complete
+        if (isFetching.value && pendingFetchPromise.value) {
+            console.log('📊 Waiting for in-flight request to complete...');
+            pendingFetchPromise.value.finally(() => {
+                console.log('📊 In-flight request completed, polling stopped');
+            });
+        }
+
+        // Reset state
+        fetchQueue.value = 0;
+        currentRetryCount = 0;
     }
 
     // Data analysis functions
@@ -324,74 +512,24 @@ export const useFarmerChartStore = defineStore('farmerChart', () => {
 
             const sortedRecords = [...records].sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 
-            // Determine aggregation interval based on timeframe
-            let intervalMs = 60000; // 1 minute default
-            if (timeframeHours <= 1) {
-                intervalMs = 30000; // 30 seconds for 1 hour view
-            } else if (timeframeHours <= 6) {
-                intervalMs = 300000; // 5 minutes for 6 hour view
-            } else if (timeframeHours <= 24) {
-                intervalMs = 900000; // 15 minutes for 24 hour view
-            } else {
-                intervalMs = 3600000; // 1 hour for longer views
-            }
-
-            console.log(`🔍 DEBUG: Using ${intervalMs}ms intervals for aggregation`);
-
-            // Group records into time buckets and sum the activity
-            const buckets = new Map<number, {
-                timestamp: Date,
-                og: number,
-                nft: number,
-                compressed: number,
-                count: number
-            }>();
-
-            sortedRecords.forEach(record => {
-                const bucketTime = Math.floor(record.timestamp.getTime() / intervalMs) * intervalMs;
-
-                if (!buckets.has(bucketTime)) {
-                    buckets.set(bucketTime, {
-                        timestamp: new Date(bucketTime),
-                        og: 0,
-                        nft: 0,
-                        compressed: 0,
-                        count: 0
-                    });
-                }
-
-                const bucket = buckets.get(bucketTime)!;
-                bucket.og += record.activity.passedFilter.og.processed;
-                bucket.nft += record.activity.passedFilter.nft.processed;
-                bucket.compressed += record.activity.passedFilter.compressed.processed;
-                bucket.count += 1;
-            });
-
-            // Convert buckets to arrays sorted by time
-            const sortedBuckets = Array.from(buckets.values())
-                .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-
-            console.log('🔍 DEBUG: Aggregated buckets:', sortedBuckets.map(b => ({
-                timestamp: b.timestamp.toISOString(),
-                og: b.og,
-                nft: b.nft,
-                compressed: b.compressed,
-                events: b.count
-            })));
-
+            // For farming data, we want to show individual events rather than aggregating
+            // This gives a more accurate view of farming activity
             const chartData = {
-                timestamps: sortedBuckets.map(bucket => bucket.timestamp),
-                ogPassedFilter: sortedBuckets.map(bucket => bucket.og),
-                nftPassedFilter: sortedBuckets.map(bucket => bucket.nft),
-                compressedPassedFilter: sortedBuckets.map(bucket => bucket.compressed),
+                timestamps: sortedRecords.map(record => record.timestamp),
+                ogPassedFilter: sortedRecords.map(record => record.activity.passedFilter.og.processed),
+                nftPassedFilter: sortedRecords.map(record => record.activity.passedFilter.nft.processed),
+                compressedPassedFilter: sortedRecords.map(record => record.activity.passedFilter.compressed.processed),
                 updateId: chartUpdateId.value
             };
 
-            console.log('🔍 DEBUG: Final aggregated chart data:', {
+            console.log('🔍 DEBUG: Final chart data:', {
                 dataPoints: chartData.timestamps.length,
                 totalOG: chartData.ogPassedFilter.reduce((sum, val) => sum + val, 0),
                 totalNFT: chartData.nftPassedFilter.reduce((sum, val) => sum + val, 0),
-                totalCompressed: chartData.compressedPassedFilter.reduce((sum, val) => sum + val, 0)
+                totalCompressed: chartData.compressedPassedFilter.reduce((sum, val) => sum + val, 0),
+                nonZeroOG: chartData.ogPassedFilter.filter(val => val > 0).length,
+                nonZeroNFT: chartData.nftPassedFilter.filter(val => val > 0).length,
+                nonZeroCompressed: chartData.compressedPassedFilter.filter(val => val > 0).length
             });
 
             return chartData;
@@ -500,20 +638,20 @@ export const useFarmerChartStore = defineStore('farmerChart', () => {
     function getChartOptions(timeframeHours: number) {
         // Determine the appropriate time format based on timeframe
         let timeFormat = 'HH:mm:ss';
-        let titleText = 'Plots Passed Filter (Aggregated)';
+        let titleText = 'Plots Passed Filter';
 
         if (timeframeHours <= 1) {
             timeFormat = 'HH:mm:ss';
-            titleText = 'Plots Passed Filter (30-second intervals)';
+            titleText = 'Plots Passed Filter (Individual Events)';
         } else if (timeframeHours <= 6) {
             timeFormat = 'HH:mm';
-            titleText = 'Plots Passed Filter (5-minute intervals)';
+            titleText = 'Plots Passed Filter (Individual Events)';
         } else if (timeframeHours <= 24) {
             timeFormat = 'HH:mm';
-            titleText = 'Plots Passed Filter (15-minute intervals)';
+            titleText = 'Plots Passed Filter (Individual Events)';
         } else {
             timeFormat = 'MMM dd HH:mm';
-            titleText = 'Plots Passed Filter (1-hour intervals)';
+            titleText = 'Plots Passed Filter (Individual Events)';
         }
 
         return {
@@ -535,7 +673,7 @@ export const useFarmerChartStore = defineStore('farmerChart', () => {
             },
             plotOptions: {
                 bar: {
-                    columnWidth: '70%',
+                    columnWidth: '50%',
                     distributed: false
                 }
             },
@@ -746,6 +884,13 @@ export const useFarmerChartStore = defineStore('farmerChart', () => {
         clearHistory,
 
         // Debug functions
-        debugChartData
+        debugChartData,
+
+        // NEW: Fast polling controls
+        enableFastPolling,
+        enableNormalPolling,
+        currentPollInterval: computed(() => currentPollInterval.value),
+        lastActivityTime: computed(() => lastActivityTime.value),
+        consecutiveEmptyPolls: computed(() => consecutiveEmptyPolls.value)
     };
 });

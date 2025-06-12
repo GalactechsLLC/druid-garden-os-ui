@@ -15,11 +15,17 @@ let websocket: WebSocket | null = null;
 const logs = ref<LogEntry[]>([]);
 const connectionStatus = ref<'connecting' | 'connected' | 'disconnected' | 'error'>('disconnected');
 
+// Batching for performance
+const logBatch = ref<LogEntry[]>([]);
+let batchTimer: number | null = null;
+
 const WS_CONFIG = {
-    BASE_PATH: '/farmer/log_stream', // Updated to use new unified API path
-    RECONNECT_INTERVAL: 5000, // 5 seconds
+    BASE_PATH: '/farmer/log_stream',
+    RECONNECT_INTERVAL: 5000,
     MAX_RECONNECT_ATTEMPTS: 5,
-    MAX_LOG_ENTRIES: 1000
+    MAX_LOG_ENTRIES: 1000,
+    BATCH_SIZE: 50,           // Process up to 50 logs at once
+    BATCH_INTERVAL: 100       // Update UI every 100ms max
 };
 
 export function useLogService(): LogServiceReturn {
@@ -27,6 +33,46 @@ export function useLogService(): LogServiceReturn {
     let reconnectTimer: number | null = null;
     let currentLevel: LogLevelValue = 'INFO';
     let chartStore: ReturnType<typeof useFarmerChartStore> | null = null;
+
+    // Batched log processing for performance
+    function processBatchedLogs(): void {
+        if (logBatch.value.length === 0) return;
+
+        // Add new logs to the beginning (newest first)
+        logs.value = [...logBatch.value.reverse(), ...logs.value];
+
+        // Trim to max entries, keeping the newest
+        if (logs.value.length > WS_CONFIG.MAX_LOG_ENTRIES) {
+            logs.value = logs.value.slice(0, WS_CONFIG.MAX_LOG_ENTRIES);
+        }
+
+        // Clear the batch
+        logBatch.value = [];
+
+        console.log(`📋 Processed batch of logs, total: ${logs.value.length}`);
+    }
+
+    function addLogToBatch(logEntry: LogEntry): void {
+        logBatch.value.push(logEntry);
+
+        // Process immediately if batch is full
+        if (logBatch.value.length >= WS_CONFIG.BATCH_SIZE) {
+            if (batchTimer) {
+                clearTimeout(batchTimer);
+                batchTimer = null;
+            }
+            processBatchedLogs();
+            return;
+        }
+
+        // Otherwise, schedule batch processing
+        if (!batchTimer) {
+            batchTimer = window.setTimeout(() => {
+                processBatchedLogs();
+                batchTimer = null;
+            }, WS_CONFIG.BATCH_INTERVAL);
+        }
+    }
 
     function connect(store: ReturnType<typeof useFarmerChartStore>, level: LogLevelValue = 'INFO'): void {
         chartStore = store;
@@ -43,49 +89,50 @@ export function useLogService(): LogServiceReturn {
 
     function connectWebSocket(): void {
         try {
-            // Use the same host and port as the current page (unified API)
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const host = window.location.host; // This includes port if different from 80/443
+            const host = window.location.host;
 
             const wsUrl = `${protocol}//${host}${WS_CONFIG.BASE_PATH}/${currentLevel}`;
-            console.log('Connecting to WebSocket:', wsUrl);
+            console.log('🔌 Connecting to WebSocket:', wsUrl);
 
             websocket = new WebSocket(wsUrl);
 
             websocket.onopen = () => {
                 connectionStatus.value = 'connected';
-                console.log('WebSocket connection established for level:', currentLevel);
+                console.log('✅ WebSocket connection established for level:', currentLevel);
                 reconnectAttempts = 0;
 
-                // Note: No longer calling updateCumulativeTotals as it doesn't exist
-                // The optimized chart store handles data updates automatically
                 if (chartStore) {
-                    console.log('WebSocket connected, chart store will handle data updates automatically');
+                    console.log('📊 WebSocket connected, chart store will handle data updates automatically');
                 }
             };
 
             websocket.onmessage = (event) => {
                 try {
                     const logEntry: LogEntry = JSON.parse(event.data);
-                    logs.value.unshift(logEntry);
 
-                    // Keep logs at a reasonable size
-                    if (logs.value.length > WS_CONFIG.MAX_LOG_ENTRIES) {
-                        logs.value = logs.value.slice(0, WS_CONFIG.MAX_LOG_ENTRIES);
-                    }
+                    // Add to batch instead of directly to logs array
+                    addLogToBatch(logEntry);
 
                     // Process log entry for farmer activity tracking
                     if (chartStore && isActivityLogEntry(logEntry)) {
                         parseActivityFromLog(logEntry, chartStore);
                     }
                 } catch (error) {
-                    console.error('Error parsing log message:', error);
+                    console.error('❌ Error parsing log message:', error);
                 }
             };
 
             websocket.onclose = (event) => {
                 connectionStatus.value = 'disconnected';
-                console.log('WebSocket connection closed', event.code, event.reason);
+                console.log('🔌 WebSocket connection closed', event.code, event.reason);
+
+                // Process any remaining logs in batch before closing
+                if (batchTimer) {
+                    clearTimeout(batchTimer);
+                    batchTimer = null;
+                }
+                processBatchedLogs();
 
                 // Only attempt reconnection for unexpected closures
                 if (event.code !== 1000) {
@@ -95,11 +142,11 @@ export function useLogService(): LogServiceReturn {
 
             websocket.onerror = (error) => {
                 connectionStatus.value = 'error';
-                console.error('WebSocket error:', error);
+                console.error('❌ WebSocket error:', error);
             };
         } catch (error) {
             connectionStatus.value = 'error';
-            console.error('Error establishing WebSocket connection:', error);
+            console.error('❌ Error establishing WebSocket connection:', error);
             tryReconnect();
         }
     }
@@ -117,16 +164,16 @@ export function useLogService(): LogServiceReturn {
                 30000
             ) * (0.8 + Math.random() * 0.4);
 
-            console.log(`Attempting to reconnect in ${Math.round(backoffTime / 1000)} seconds (attempt ${reconnectAttempts}/${WS_CONFIG.MAX_RECONNECT_ATTEMPTS})`);
+            console.log(`🔄 Attempting to reconnect in ${Math.round(backoffTime / 1000)} seconds (attempt ${reconnectAttempts}/${WS_CONFIG.MAX_RECONNECT_ATTEMPTS})`);
 
             reconnectTimer = window.setTimeout(() => {
                 if (connectionStatus.value !== 'connected') {
-                    console.log(`Reconnecting... (attempt ${reconnectAttempts}/${WS_CONFIG.MAX_RECONNECT_ATTEMPTS})`);
+                    console.log(`🔄 Reconnecting... (attempt ${reconnectAttempts}/${WS_CONFIG.MAX_RECONNECT_ATTEMPTS})`);
                     connectWebSocket();
                 }
             }, backoffTime);
         } else {
-            console.error(`Failed to reconnect after ${WS_CONFIG.MAX_RECONNECT_ATTEMPTS} attempts`);
+            console.error(`❌ Failed to reconnect after ${WS_CONFIG.MAX_RECONNECT_ATTEMPTS} attempts`);
             connectionStatus.value = 'error';
         }
     }
@@ -137,9 +184,16 @@ export function useLogService(): LogServiceReturn {
         if (newLevel !== currentLevel) {
             currentLevel = newLevel;
 
+            // Process any pending logs before switching
+            if (batchTimer) {
+                clearTimeout(batchTimer);
+                batchTimer = null;
+            }
+            processBatchedLogs();
+
             // Reconnect with new level if currently connected
             if (connectionStatus.value === 'connected' && chartStore) {
-                console.log('Changing log level to:', newLevel);
+                console.log('🔄 Changing log level to:', newLevel);
                 disconnect();
                 setTimeout(() => {
                     connect(chartStore!, newLevel);
@@ -149,6 +203,16 @@ export function useLogService(): LogServiceReturn {
     }
 
     function disconnect(): void {
+        console.log('🔌 Disconnecting WebSocket...');
+
+        if (batchTimer) {
+            clearTimeout(batchTimer);
+            batchTimer = null;
+        }
+
+        // Process any remaining logs
+        processBatchedLogs();
+
         if (reconnectTimer !== null) {
             window.clearTimeout(reconnectTimer);
             reconnectTimer = null;
@@ -165,7 +229,16 @@ export function useLogService(): LogServiceReturn {
     }
 
     function clearLogs(): void {
+        // Clear both the displayed logs and any pending batch
         logs.value = [];
+        logBatch.value = [];
+
+        if (batchTimer) {
+            clearTimeout(batchTimer);
+            batchTimer = null;
+        }
+
+        console.log('🗑️ Logs cleared');
     }
 
     // Helper function to identify activity-related log entries
@@ -174,7 +247,6 @@ export function useLogService(): LogServiceReturn {
 
         const message = logEntry.message.toLowerCase();
 
-        // Look for farming activity keywords
         return message.includes('proof') ||
             message.includes('partial') ||
             message.includes('signage') ||
@@ -183,23 +255,37 @@ export function useLogService(): LogServiceReturn {
             message.includes('filter');
     }
 
-    // Parse farming activity from log entries
+    // Parse farming activity from log entries (debounced to prevent spam)
+    const activityTimeouts = new Map<string, number>();
+
     function parseActivityFromLog(logEntry: LogEntry, chartStore: ReturnType<typeof useFarmerChartStore>): void {
         try {
             const message = logEntry.message;
 
-            // Trigger stats refresh when important farming events occur
             if (message.includes('Proof found')) {
-                // Delay to ensure backend has processed the event
-                setTimeout(() => chartStore.fetchFarmerStats(), 1000);
+                debounceActivity('proof', () => chartStore.fetchFarmerStats(), 1000);
             } else if (message.includes('Partial found')) {
-                setTimeout(() => chartStore.fetchFarmerStats(), 1000);
+                debounceActivity('partial', () => chartStore.fetchFarmerStats(), 1000);
             } else if (message.includes('plots passed filter')) {
-                setTimeout(() => chartStore.fetchFarmerStats(), 2000);
+                debounceActivity('filter', () => chartStore.fetchFarmerStats(), 2000);
             }
         } catch (error) {
-            console.error('Error parsing activity from log:', error);
+            console.error('❌ Error parsing activity from log:', error);
         }
+    }
+
+    function debounceActivity(key: string, callback: () => void, delay: number): void {
+        const existingTimeout = activityTimeouts.get(key);
+        if (existingTimeout) {
+            clearTimeout(existingTimeout);
+        }
+
+        const timeout = window.setTimeout(() => {
+            callback();
+            activityTimeouts.delete(key);
+        }, delay);
+
+        activityTimeouts.set(key, timeout);
     }
 
     onBeforeUnmount(() => {
