@@ -4,6 +4,7 @@ import Notification from '@/components/Notification.vue';
 import SystemPreferencesTab from '@/components/settings/SystemPreferencesTab.vue';
 import NetworkTab from '@/components/settings/NetworkTab.vue';
 import DeviceManagerTab from '@/components/settings/DeviceManagerTab.vue';
+import LEDManagerTab from '@/components/settings/LEDManagerTab.vue';
 
 const mainTab = ref(localStorage.getItem('settingsTab') || 'system');
 
@@ -44,6 +45,7 @@ const updateUrlTab = (tab: string) => {
         <q-tab name="system" label="System Preferences" icon="settings" />
         <q-tab name="network" label="WiFi & Network" icon="wifi" />
         <q-tab name="devices" label="Storage Manager" icon="storage" />
+        <q-tab name="leds" label="LED Manager" icon="lightbulb" />
       </q-tabs>
 
       <q-tab-panels v-model="mainTab" animated>
@@ -57,6 +59,10 @@ const updateUrlTab = (tab: string) => {
 
         <q-tab-panel name="devices">
           <DeviceManagerTab />
+        </q-tab-panel>
+
+        <q-tab-panel name="leds">
+          <LEDManagerTab />
         </q-tab-panel>
       </q-tab-panels>
     </div>

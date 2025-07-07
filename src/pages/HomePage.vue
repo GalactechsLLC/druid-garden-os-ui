@@ -7,7 +7,10 @@ import {useNotificationStore} from '@/stores/notificationStore'
 import {formatBytes} from '@/utils/format'
 import type {MemorySegmentType, NetworkInfo} from '@/types/system'
 import Notification from "@/components/Notification.vue";
+import {useDiskStore} from "@/stores/diskStore.ts";
+import type {DiskInfo, Partition} from "@/types/disk.ts";
 
+const diskStore = useDiskStore()
 const pluginStore = usePluginStore()
 const systemStore = useSystemInfoStore()
 const filesStore = useFilesStore()
@@ -101,6 +104,7 @@ async function fetchAllData() {
       pluginStore.fetchPlugins(),
       systemStore.fetchSystemInfo(),
       filesStore.fetchDiskStats(),
+      diskStore.fetchDisks(),
       fetchDriveStatuses(),
       fetchNetworkStats(),
       checkSystemHealth()
@@ -119,26 +123,43 @@ async function fetchAllData() {
 }
 
 async function fetchDriveStatuses() {
-  if (systemStore.systemInfo?.storage) {
-    driveStatuses.value = systemStore.systemInfo.storage.map((drive) => {
-      let status: 'ok' | 'warning' | 'critical' = 'ok'
+  // Fetch disk data from the disk store instead
+  await diskStore.fetchDisks()
 
-      if (drive.usage > 90) status = 'critical'
-      else if (drive.usage > 75) status = 'warning'
+  if (diskStore.disks) {
+    driveStatuses.value = []
 
-      return {
-        device: drive.device,
-        mountPoint: drive.mountPoint,
-        size: drive.total,
-        used: drive.used,
-        usage: drive.usage,
-        type: drive.type,
-        status
+    // Process each disk's mounted partitions
+    diskStore.disks.forEach((disk: DiskInfo) => {
+      if (disk.partitions) {
+        disk.partitions.forEach((partition: Partition) => {
+          // Only show mounted partitions with valid space info
+          if (partition.mount_path && partition.space_info && partition.space_info.total_space > 0) {
+            const usedSpace = partition.space_info.used_space
+            const totalSpace = partition.space_info.total_space
+            const usagePercentage = totalSpace > 0 ? Math.round((usedSpace / totalSpace) * 100) : 0
+
+            let status: 'ok' | 'warning' | 'critical' = 'ok'
+            if (usagePercentage > 90) status = 'critical'
+            else if (usagePercentage > 75) status = 'warning'
+
+            driveStatuses.value.push({
+              device: partition.device,
+              mountPoint: partition.mount_path,
+              size: totalSpace,
+              used: usedSpace,
+              usage: usagePercentage,
+              type: partition.file_system || 'Unknown',
+              status
+            })
+          }
+        })
       }
     })
   }
 
   if (systemStore.systemInfo) {
+    // Calculate total storage from all mounted partitions
     systemOverview.value.totalStorage = driveStatuses.value.reduce((total, drive) => total + drive.size, 0)
 
     // Update other system info
@@ -401,6 +422,7 @@ onUnmounted(() => {
                     <div class="col-auto">
                       <q-knob
                           v-model="cpuUsage"
+                          :readonly="true"
                           size="85px"
                           :thickness="0.2"
                           :color="cpuUsage > 80 ? 'negative' : cpuUsage > 60 ? 'warning' : 'positive'"
@@ -431,6 +453,7 @@ onUnmounted(() => {
                     <div class="col-auto">
                       <q-knob
                           v-model="memoryUsage"
+                          :readonly="true"
                           size="85px"
                           :thickness="0.2"
                           :color="memoryUsage > 80 ? 'negative' : memoryUsage > 60 ? 'warning' : 'positive'"
