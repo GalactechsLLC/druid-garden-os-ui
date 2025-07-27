@@ -198,6 +198,7 @@ export const useConfigStore = defineStore('config', {
                 }
 
                 const config = this.configs[index];
+                const originalValue = config.value;
 
                 const updateData = {
                     key: config.key,
@@ -209,6 +210,12 @@ export const useConfigStore = defineStore('config', {
                     modified: "0"
                 };
 
+                this.configs[index] = {
+                    ...config,
+                    value: String(value),
+                    last_value: last_value ? String(last_value) : config.value
+                };
+
                 const response = await post(`config/${key}`, updateData, {
                     successMessage: `Setting "${key}" updated successfully`,
                     errorMessage: `Failed to update setting "${key}"`,
@@ -217,26 +224,24 @@ export const useConfigStore = defineStore('config', {
 
                 if (response && typeof response === 'object') {
                     this.configs[index] = response;
-                } else {
-                    this.configs[index] = {
-                        ...config,
-                        value: String(value),
-                        last_value: last_value ? String(last_value) : config.value
-                    };
                 }
+
             } catch (error) {
                 console.error('Error updating config:', error);
                 this.error = 'Failed to update setting';
 
+                // On error, restore original value
                 const index = this.configs.findIndex(c => c.key === key);
                 if (index >= 0) {
-                    const config = this.configs[index];
+                    // Find the original config again in case the index changed
+                    const originalConfig = this.configs[index];
                     this.configs[index] = {
-                        ...config,
-                        value: String(value),
-                        last_value: last_value ? String(last_value) : config.value
+                        ...originalConfig,
+                        value: originalConfig.last_value || originalConfig.value
                     };
                 }
+
+                throw error;
             } finally {
                 this.loading = false;
             }
@@ -406,7 +411,18 @@ export const useConfigStore = defineStore('config', {
         },
 
         async setLEDBoardType(boardType: string) {
-            await this.updateConfig('led_board_type', boardType);
+            console.log(`Setting LED board type to: ${boardType}`);
+            console.log(`Current LED board type: ${this.getLEDBoardType()}`);
+
+            const currentValue = this.getLEDBoardType();
+
+            try {
+                await this.updateConfig('led_board_type', boardType, currentValue);
+                console.log(`LED board type successfully updated to: ${this.getLEDBoardType()}`);
+            } catch (error) {
+                console.error('Failed to update LED board type:', error);
+                throw error;
+            }
         }
     }
 });

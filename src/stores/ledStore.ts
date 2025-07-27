@@ -74,7 +74,7 @@ export const useLEDStore = defineStore('led', () => {
             id: 'rock5',
             name: 'rock5',
             displayName: 'Rock Pi 5',
-            pins: { red: 32, green: 33, blue: 35 },
+            pins: { red: 36, green: 38, blue: 40 },
             config: {
                 red: 0,
                 green: 0,
@@ -248,7 +248,6 @@ export const useLEDStore = defineStore('led', () => {
         }
     };
 
-    // Test LED color by setting individual pin
     const testColor = async (color: 'red' | 'green' | 'blue') => {
         if (!currentBoardConfig.value) return;
 
@@ -262,10 +261,6 @@ export const useLEDStore = defineStore('led', () => {
 
             console.log(`Testing ${colorName} LED on pin ${pin}`);
 
-            // Set the pin mode for testing
-            await setPinMode(pin, colorName);
-
-            // Set a test color (full intensity for the tested color)
             const testColorValues = {
                 red: color === 'red' ? 255 : 0,
                 green: color === 'green' ? 255 : 0,
@@ -273,9 +268,6 @@ export const useLEDStore = defineStore('led', () => {
             };
 
             await setColorMode(testColorValues);
-
-            // Keep the test running - don't auto-clear
-            // User can manually switch colors or reset
             console.log(`${colorName} LED test activated - LED should stay on`);
 
         } catch (err) {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
+// Replace your Vue component's script section with this:
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { useLEDStore } from '@/stores/ledStore';
 import { useNotificationStore } from '@/stores/notificationStore';
 
@@ -9,10 +10,32 @@ const ledStore = useLEDStore();
 const saving = ref(false);
 const testing = ref<string | null>(null);
 const showResetDialog = ref(false);
+const selectedBoard = ref<string>('rpi4'); // Local reactive value for the dropdown
+const isChangingBoard = ref(false); // Flag to prevent watcher conflicts
 
 // Computed properties for easier template access
 const currentConfig = computed(() => ledStore.currentBoardConfig?.config);
 const currentBoard = computed(() => ledStore.currentBoardConfig);
+
+// Computed properties for reactive GPIO pin display
+const currentPins = computed(() => {
+  const board = ledStore.boards.find(b => b.id === selectedBoard.value);
+  return board?.pins || { red: 0, green: 0, blue: 0 };
+});
+
+const currentBoardName = computed(() => {
+  const board = ledStore.boards.find(b => b.id === selectedBoard.value);
+  return board?.displayName || 'Unknown Board';
+});
+
+// Watch for changes in the store and update local state
+// BUT only when we're not actively changing the board
+watch(() => ledStore.currentBoard, (newBoard) => {
+  if (!isChangingBoard.value && newBoard) {
+    console.log('Store updated, syncing selectedBoard to:', newBoard);
+    selectedBoard.value = newBoard;
+  }
+}, { immediate: true });
 
 // Color test methods
 const testColorLED = async (color: 'red' | 'green' | 'blue') => {
@@ -50,21 +73,45 @@ const saveConfig = async () => {
   }
 };
 
-// Board selection handler
+// Board selection handler - FIXED VERSION
 const onBoardChange = async (boardId: string) => {
+  if (isChangingBoard.value) return; // Prevent duplicate calls
+
+  console.log('onBoardChange called with:', boardId);
+  console.log('Current selectedBoard:', selectedBoard.value);
+  console.log('Current store board:', ledStore.currentBoard);
+
+  isChangingBoard.value = true; // Set flag to prevent watcher interference
+
   try {
     // Find the new board info before switching
     const newBoard = ledStore.boards.find(board => board.id === boardId);
 
+    // Call the store method
     await ledStore.setCurrentBoard(boardId);
+
+    // Wait for Vue to process the update
+    await nextTick();
+
+    // Force update the selectedBoard to match what we just set
+    selectedBoard.value = boardId;
+
+    console.log('Board change completed. Store board:', ledStore.currentBoard, 'Selected board:', selectedBoard.value);
 
     notificationStore.success(`Switched to ${newBoard?.displayName || boardId} and configured RGB pins`, {
       icon: 'swap_horiz'
     });
   } catch (error) {
+    console.error('Board change failed:', error);
+
+    // On error, revert the dropdown to the store's current value
+    selectedBoard.value = ledStore.currentBoard;
+
     notificationStore.error(`Failed to switch to ${boardId}`, {
       icon: 'error'
     });
+  } finally {
+    isChangingBoard.value = false; // Clear flag
   }
 };
 
@@ -100,6 +147,9 @@ const cancelReset = () => {
 // Initialize the store on mount
 onMounted(async () => {
   await ledStore.initializeStore();
+  // Set initial value after store is loaded
+  selectedBoard.value = ledStore.currentBoard;
+  console.log('Component mounted. Initial board:', selectedBoard.value);
 });
 </script>
 
@@ -114,7 +164,7 @@ onMounted(async () => {
           <div class="row items-center q-gutter-md">
             <div class="col-12 col-md-3">
               <q-select
-                  :model-value="ledStore.currentBoard"
+                  v-model="selectedBoard"
                   :options="ledStore.availableBoards"
                   label="Select Board"
                   outlined
@@ -125,14 +175,14 @@ onMounted(async () => {
               />
             </div>
 
-            <div class="col-12 col-md-4" v-if="currentBoard">
+            <div class="col-12 col-md-4" v-if="selectedBoard">
               <div class="text-body2 text-grey-7">
-                <div><strong>{{ currentBoard.displayName }}</strong></div>
-                <div>Red: GPIO {{ currentBoard.pins.red }} | Green: GPIO {{ currentBoard.pins.green }} | Blue: GPIO {{ currentBoard.pins.blue }}</div>
+                <div><strong>{{ currentBoardName }}</strong></div>
+                <div>Red: GPIO {{ currentPins.red }} | Green: GPIO {{ currentPins.green }} | Blue: GPIO {{ currentPins.blue }}</div>
               </div>
             </div>
 
-            <div class="col-12 col-md-12">
+            <div class="col-12 col-md-8">
               <div class="row q-gutter-sm">
                 <div class="col">
                   <q-btn
@@ -181,8 +231,8 @@ onMounted(async () => {
           <h6 class="q-mt-none q-mb-md">LED Test Controls</h6>
 
           <div class="text-body2 text-grey-7 q-mb-md">
-            Click the buttons below to test each LED color on your {{ currentBoard.displayName }}.
-            The LEDs will light up briefly to verify they're working correctly.
+            Click the buttons below to test each LED color on your {{ currentBoardName }}.
+            The LEDs will activate to verify they're working correctly.
           </div>
 
           <div class="row q-gutter-md">
@@ -193,7 +243,7 @@ onMounted(async () => {
                   <div class="led-color-indicator red-led q-mb-md"></div>
                   <div class="text-h6 q-mb-sm">Red LED</div>
                   <div class="text-body2 text-grey-7 q-mb-md">
-                    GPIO Pin: {{ currentBoard.pins.red }}
+                    GPIO Pin: {{ currentPins.red }}
                   </div>
                   <q-btn
                       @click="testColorLED('red')"
@@ -216,7 +266,7 @@ onMounted(async () => {
                   <div class="led-color-indicator green-led q-mb-md"></div>
                   <div class="text-h6 q-mb-sm">Green LED</div>
                   <div class="text-body2 text-grey-7 q-mb-md">
-                    GPIO Pin: {{ currentBoard.pins.green }}
+                    GPIO Pin: {{ currentPins.green }}
                   </div>
                   <q-btn
                       @click="testColorLED('green')"
@@ -239,7 +289,7 @@ onMounted(async () => {
                   <div class="led-color-indicator blue-led q-mb-md"></div>
                   <div class="text-h6 q-mb-sm">Blue LED</div>
                   <div class="text-body2 text-grey-7 q-mb-md">
-                    GPIO Pin: {{ currentBoard.pins.blue }}
+                    GPIO Pin: {{ currentPins.blue }}
                   </div>
                   <q-btn
                       @click="testColorLED('blue')"
@@ -283,7 +333,7 @@ onMounted(async () => {
         <template v-slot:avatar>
           <q-spinner color="white" size="2em" />
         </template>
-        Testing {{ testing }} LED on {{ currentBoard?.displayName }}... Please verify the LED lights up correctly.
+        Testing {{ testing }} LED on {{ currentBoardName }}... Please verify the LED lights up correctly.
       </q-banner>
     </div>
   </div>

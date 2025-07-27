@@ -152,28 +152,62 @@ const showLabelDialog = (partition: Partition): void => {
 
 // Save partition label
 const savePartitionLabel = async (): Promise<void> => {
-  if (!partitionToLabel.value || !partitionToLabel.value.uuid) return;
+  // Add comprehensive null checks
+  if (!partitionToLabel.value) {
+    console.error('partitionToLabel.value is null');
+    return;
+  }
 
-  await withApiLoading(
-      labelingInProgress,
-      async () => {
-        await configStore.setDriveLabel(partitionToLabel.value!.uuid!, newLabel.value);
+  if (!partitionToLabel.value.uuid) {
+    console.error('partitionToLabel.value.uuid is null');
+    notificationStore.error('Cannot save label - partition has no UUID', { icon: 'error' });
+    return;
+  }
 
-        labelDialogOpen.value = false;
+  const uuid = partitionToLabel.value.uuid;
+  // Handle null, undefined, or empty string as "delete the entry"
+  const trimmedLabel = (newLabel.value || '').trim();
 
-        const labelText = newLabel.value.trim() === '' ? 'removed' : `set to "${newLabel.value}"`;
-        notificationStore.success(`Partition label ${labelText}`, {
-          icon: 'label'
-        });
+  try {
+    await withApiLoading(
+        labelingInProgress,
+        async () => {
+          // Get current labeled drives - add null check here too
+          const currentLabeledDrives = configStore.labeledDrives;
+          if (!currentLabeledDrives) {
+            throw new Error('Failed to get current labeled drives');
+          }
 
-        return true;
-      },
-      {
-        showSuccessNotification: false,
-        showErrorNotification: true,
-        errorMessage: 'Failed to update partition label'
-      }
-  );
+          const currentDrives = { ...currentLabeledDrives };
+
+          if (trimmedLabel === '') {
+            delete currentDrives[uuid];
+          } else {
+            currentDrives[uuid] = trimmedLabel;
+          }
+
+          const newValue = JSON.stringify(currentDrives);
+          await configStore.updateConfig('labeled_drives', newValue);
+
+          labelDialogOpen.value = false;
+
+          const labelText = trimmedLabel === '' ? 'removed' : `set to "${trimmedLabel}"`;
+          notificationStore.success(`Partition label ${labelText}`, {
+            icon: 'label'
+          });
+
+          return true;
+        },
+        {
+          showSuccessNotification: false,
+          showErrorNotification: true,
+          errorMessage: 'Failed to update partition label'
+        }
+    );
+  } catch (error) {
+    console.error('Error in savePartitionLabel:', error);
+    notificationStore.error('Failed to save partition label', { icon: 'error' });
+  }
 };
 
 const openMountDialog = (partition: Partition): void => {
