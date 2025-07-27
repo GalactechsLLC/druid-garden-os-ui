@@ -123,17 +123,14 @@ async function fetchAllData() {
 }
 
 async function fetchDriveStatuses() {
-  // Fetch disk data from the disk store instead
   await diskStore.fetchDisks()
 
   if (diskStore.disks) {
     driveStatuses.value = []
 
-    // Process each disk's mounted partitions
     diskStore.disks.forEach((disk: DiskInfo) => {
       if (disk.partitions) {
         disk.partitions.forEach((partition: Partition) => {
-          // Only show mounted partitions with valid space info
           if (partition.mount_path && partition.space_info && partition.space_info.total_space > 0) {
             const usedSpace = partition.space_info.used_space
             const totalSpace = partition.space_info.total_space
@@ -144,7 +141,7 @@ async function fetchDriveStatuses() {
             else if (usagePercentage > 75) status = 'warning'
 
             driveStatuses.value.push({
-              device: partition.device,
+              device: partition.name || partition.device,
               mountPoint: partition.mount_path,
               size: totalSpace,
               used: usedSpace,
@@ -159,10 +156,8 @@ async function fetchDriveStatuses() {
   }
 
   if (systemStore.systemInfo) {
-    // Calculate total storage from all mounted partitions
     systemOverview.value.totalStorage = driveStatuses.value.reduce((total, drive) => total + drive.size, 0)
 
-    // Update other system info
     systemOverview.value.hostname = systemStore.systemInfo.system.hostname
     systemOverview.value.osInfo = `${systemStore.systemInfo.system.name} ${systemStore.systemInfo.system.os_version}`
     systemOverview.value.uptime = systemStore.formatUptime(systemStore.systemInfo.system.uptime)

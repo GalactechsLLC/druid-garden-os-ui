@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { get } from '@/utils/api';
 import type { System, CombinedSystemInfo, CpuInfo, GpuInfo, MemoryInfo } from "@/types/system";
-import type { DiskInfo, StorageDevice, StorageInfo } from "@/types/disk";
+import type { DiskInfo } from "@/types/disk";
 
 import { calculatePercentage, formatBytes, formatPercentage, getUsageColor } from "@/utils/format";
 import {
@@ -49,17 +49,6 @@ export const useSystemInfoStore = defineStore('systemInfo', () => {
                 runtime: formatProcessRuntime(process.started)
             }));
 
-            const storageDevices: StorageDevice[] = disksResults.map(disk => ({
-                device: disk.name,
-                mountPoint: disk.mount_path,
-                fstype: disk.name.includes('sd') ? 'ext4' : 'xfs',
-                total: disk.total,
-                used: disk.used || 0,
-                available: disk.total - (disk.used || 0),
-                usage: calculateDiskUsagePercentage(disk.used || 0, disk.total),
-                type: detectDiskType(disk)
-            }));
-
             systemInfo.value = {
                 system: {
                     ...systemResults,
@@ -71,7 +60,6 @@ export const useSystemInfoStore = defineStore('systemInfo', () => {
                 },
                 disks: disksResults,
                 networks: networkStore.networkInfoData,
-                storage: storageDevices,
                 cpu: {
                     usage: parseFloat(cpuResults.global_usage.toString()),
                     temperature: 45 + Math.random() * 15,
@@ -93,7 +81,6 @@ export const useSystemInfoStore = defineStore('systemInfo', () => {
                 processes: enhancedProcesses,
             };
 
-            // Update completion status
             lastUpdated.value = new Date();
             loading.value = false;
 
@@ -105,7 +92,6 @@ export const useSystemInfoStore = defineStore('systemInfo', () => {
             throw err;
         }
     }
-
 
     const cpuUsage = computed(() => {
         return safeNumber(systemInfo.value?.cpu.usage, 0) / 100;
@@ -151,29 +137,65 @@ export const useSystemInfoStore = defineStore('systemInfo', () => {
         };
     });
 
-    const storageInfo = computed((): StorageInfo => {
+    // Calculate storage from mounted partitions
+    const storageInfo = computed(() => {
         if (!systemInfo.value?.disks) {
             return {
                 totalSpace: 0,
                 usedSpace: 0,
                 freeSpace: 0,
                 usagePercentage: 0,
-                devices: []
+                mountedPartitions: []
             };
         }
 
-        const disks = systemInfo.value.disks;
-        const totalSpace = disks.reduce((acc, disk) => acc + disk.total, 0);
-        const usedSpace = disks.reduce((acc, disk) => acc + (disk.used || 0), 0);
+        let totalSpace = 0;
+        let usedSpace = 0;
+        const mountedPartitions: Array<{
+            device: string;
+            mountPoint: string;
+            fstype: string;
+            total: number;
+            used: number;
+            available: number;
+            usage: number;
+            type: string;
+        }> = [];
+
+        systemInfo.value.disks.forEach(disk => {
+            if (disk.partitions) {
+                disk.partitions.forEach(partition => {
+                    if (partition.mount_path && partition.space_info) {
+                        const partitionTotal = partition.space_info.total_space;
+                        const partitionUsed = partition.space_info.used_space;
+
+                        totalSpace += partitionTotal;
+                        usedSpace += partitionUsed;
+
+                        mountedPartitions.push({
+                            device: partition.name || partition.device,
+                            mountPoint: partition.mount_path,
+                            fstype: partition.file_system || 'Unknown',
+                            total: partitionTotal,
+                            used: partitionUsed,
+                            available: partition.space_info.free_space,
+                            usage: partitionTotal > 0 ? Math.round((partitionUsed / partitionTotal) * 100) : 0,
+                            type: partition.file_system || 'Unknown'
+                        });
+                    }
+                });
+            }
+        });
+
         const freeSpace = totalSpace - usedSpace;
-        const usagePercentage = (usedSpace / totalSpace) * 100;
+        const usagePercentage = totalSpace > 0 ? (usedSpace / totalSpace) * 100 : 0;
 
         return {
             totalSpace,
             usedSpace,
             freeSpace,
             usagePercentage,
-            devices: systemInfo.value.storage
+            mountedPartitions
         };
     });
 

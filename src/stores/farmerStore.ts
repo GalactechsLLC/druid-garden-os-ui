@@ -18,7 +18,6 @@ import {get} from "@/utils/api.ts";
 import { useFarmerChartStore } from '@/stores/farmerChartStore';
 
 export const useFarmerStore = defineStore('farmer', () => {
-    // Get notification store for showing messages
     const notificationStore = useNotificationStore();
 
     const logs = ref<LogEntry[]>([]);

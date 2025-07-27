@@ -342,4 +342,8 @@ onUnmounted(() => {
   height: 300px;
   color: #666;
 }
+
+.dark-mode .chart-container {
+  background: #282828;
+}
 </style>

@@ -1,4 +1,4 @@
-import type { DiskInfo, StorageDevice } from "@/types/disk";
+import type { DiskInfo } from "@/types/disk";
 import type { IpAddressData } from "@/types/network";
 
 export interface MemoryInfo {
@@ -78,7 +78,6 @@ export interface CombinedSystemInfo {
     memory: MemoryInfo;
     disks: DiskInfo[];
     networks: NetworkInfo[];
-    storage: StorageDevice[];
     cpu: {
         usage: number;
         temperature: number;

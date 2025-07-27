@@ -36,6 +36,21 @@ export const useConfigStore = defineStore('config', {
             }
 
             return tabs.sort();
+        },
+
+        // Get labeled drives as a parsed object
+        labeledDrives: (state) => {
+            const labeledDrivesConfig = state.configs.find(c => c.key === 'labeled_drives');
+            if (!labeledDrivesConfig || !labeledDrivesConfig.value) {
+                return {};
+            }
+
+            try {
+                return JSON.parse(labeledDrivesConfig.value) as Record<string, string>;
+            } catch {
+                console.error('Failed to parse labeled_drives config');
+                return {};
+            }
         }
     },
 
@@ -67,6 +82,9 @@ export const useConfigStore = defineStore('config', {
                     console.log("No configs returned from API, using defaults");
                     this.configs = this.getDefaultConfigs();
                 }
+
+                // Ensure required configs exist
+                await this.ensureRequiredConfigs();
             } catch (error) {
                 console.error('Error fetching configs:', error);
                 this.error = 'Failed to load settings';
@@ -108,8 +126,64 @@ export const useConfigStore = defineStore('config', {
                     description: 'Enable debug mode',
                     plugin: 'system',
                     type: 'boolean'
+                },
+                {
+                    key: 'labeled_drives',
+                    value: '{}',
+                    last_value: '{}',
+                    category: 'storage',
+                    system: 1,
+                    created: timestamp,
+                    modified: timestamp,
+                    description: 'Custom labels for disk partitions by UUID',
+                    plugin: 'system',
+                    type: 'json'
+                },
+                {
+                    key: 'led_board_type',
+                    value: 'rpi4',
+                    last_value: 'rpi4',
+                    category: 'hardware',
+                    system: 1,
+                    created: timestamp,
+                    modified: timestamp,
+                    description: 'Selected LED board type for GPIO pin configuration',
+                    plugin: 'system',
+                    type: 'text'
                 }
             ];
+        },
+
+        async ensureRequiredConfigs() {
+            // Ensure labeled_drives config exists
+            const existingLabeledConfig = this.configs.find(c => c.key === 'labeled_drives');
+            if (!existingLabeledConfig) {
+                console.log('Creating labeled_drives config');
+                await this.createConfig({
+                    key: 'labeled_drives',
+                    value: '{}',
+                    category: 'storage',
+                    system: 1,
+                    description: 'Custom labels for disk partitions by UUID',
+                    plugin: 'system',
+                    type: 'json'
+                });
+            }
+
+            // Ensure LED board config exists
+            const existingLEDConfig = this.configs.find(c => c.key === 'led_board_type');
+            if (!existingLEDConfig) {
+                console.log('Creating led_board_type config');
+                await this.createConfig({
+                    key: 'led_board_type',
+                    value: 'rpi4',
+                    category: 'hardware',
+                    system: 1,
+                    description: 'Selected LED board type for GPIO pin configuration',
+                    plugin: 'system',
+                    type: 'text'
+                });
+            }
         },
 
         async updateConfig(key: string, value: string | number | boolean, last_value?: string) {
@@ -295,6 +369,44 @@ export const useConfigStore = defineStore('config', {
                 this.setJSONError(key, { error: true, message: 'Cannot format invalid JSON' });
                 throw new Error('Cannot format invalid JSON');
             }
+        },
+
+        // Methods for managing drive labels
+        getDriveLabel(uuid: string): string | null {
+            const labeledDrives = this.labeledDrives;
+            return labeledDrives[uuid] || null;
+        },
+
+        async setDriveLabel(uuid: string, label: string) {
+            const labeledDrives = { ...this.labeledDrives };
+
+            if (label.trim() === '') {
+                // Remove label if empty
+                delete labeledDrives[uuid];
+            } else {
+                labeledDrives[uuid] = label.trim();
+            }
+
+            const newValue = JSON.stringify(labeledDrives);
+            await this.updateConfig('labeled_drives', newValue);
+        },
+
+        async removeDriveLabel(uuid: string) {
+            const labeledDrives = { ...this.labeledDrives };
+            delete labeledDrives[uuid];
+
+            const newValue = JSON.stringify(labeledDrives);
+            await this.updateConfig('labeled_drives', newValue);
+        },
+
+        // Methods for managing LED board selection
+        getLEDBoardType(): string {
+            const ledBoardConfig = this.configs.find(c => c.key === 'led_board_type');
+            return ledBoardConfig?.value || 'rpi4';
+        },
+
+        async setLEDBoardType(boardType: string) {
+            await this.updateConfig('led_board_type', boardType);
         }
     }
 });

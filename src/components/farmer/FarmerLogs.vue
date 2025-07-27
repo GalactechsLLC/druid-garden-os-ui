@@ -498,9 +498,6 @@ onMounted(() => {
   border-left: 4px solid #ff9800;
 }
 
-.log-level-warn .log-level {
-  color: #f57c00;
-}
 
 .log-level-info {
   background-color: #e8f5e9;
@@ -527,5 +524,63 @@ onMounted(() => {
 
 .log-level-trace .log-level {
   color: #7b1fa2;
+}
+
+.dark-mode .logs-footer {
+  background: #282828;
+}
+
+/* Dark Mode */
+.dark-mode .log-level-error {
+  background-color: rgba(244, 67, 54, 0.15);
+  border-left: 4px solid #ef5350;
+}
+
+.dark-mode .log-level-error .log-level {
+  color: #ffcdd2;
+}
+
+.dark-mode .log-level-warn {
+  background-color: rgba(255, 152, 0, 0.15);
+  border-left: 4px solid #ffa726;
+}
+
+.dark-mode .log-level-warn .log-level {
+  color: #ffe0b2;
+}
+
+.dark-mode .log-level-info {
+  background-color: rgba(76, 175, 80, 0.15);
+  border-left: 4px solid #66bb6a;
+}
+
+.dark-mode .log-level-info .log-level {
+  color: #c8e6c9;
+}
+
+.dark-mode .log-level-debug {
+  background-color: rgba(33, 150, 243, 0.15);
+  border-left: 4px solid #42a5f5;
+}
+
+.dark-mode .log-level-debug .log-level {
+  color: #bbdefb;
+}
+
+.dark-mode .log-level-trace {
+  background-color: rgba(156, 39, 176, 0.15);
+  border-left: 4px solid #ab47bc;
+}
+
+.dark-mode .log-level-trace .log-level {
+  color: #e1bee7;
+}
+
+.dark-mode .logs-footer {
+  background: #282828;
+}
+
+.dark-mode .logs-title {
+  color: #f8f9fa;
 }
 </style>

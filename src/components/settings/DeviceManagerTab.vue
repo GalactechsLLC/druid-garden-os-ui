@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useDiskStore } from '@/stores/diskStore';
+import { useConfigStore } from '@/stores/configStore';
 import { useNotificationStore } from '@/stores/notificationStore';
 import { withApiLoading } from '@/utils/api';
 import type { MountRequest, Partition } from '@/types/disk';
@@ -8,6 +9,7 @@ import * as DiskUtils from '@/utils/disk';
 
 // Get the stores
 const diskStore = useDiskStore();
+const configStore = useConfigStore();
 const notificationStore = useNotificationStore();
 
 // Local implementation of isMountablePartition in case the import isn't working
@@ -20,6 +22,38 @@ function isMountablePartition(partition: Partition | null): boolean {
   // If we get here, it's not mounted, so it SHOULD be mountable
   return true;
 }
+
+// Toggle for showing/hiding OS drives
+const showOSDrives = ref(true);
+
+// Function to check if a partition is an OS drive
+const isOSDrive = (partition: Partition): boolean => {
+  // Check if mounted at system directories
+  if (partition.mount_path) {
+    const systemMounts = ['/', '/boot', '/home', '/usr', '/var', '/tmp', '/opt'];
+    return systemMounts.some(mount => partition.mount_path === mount || partition.mount_path?.startsWith(mount + '/'));
+  }
+
+  // Check common OS filesystem types and labels
+  const osLabels = ['system', 'windows', 'boot', 'efi', 'recovery'];
+  const label = partition.label?.toLowerCase() || '';
+
+  return osLabels.some(osLabel => label.includes(osLabel)) ||
+      partition.file_system?.toLowerCase().includes('efi') ||
+      false;
+};
+
+// Computed property to filter disks based on OS drive visibility
+const filteredDisks = computed(() => {
+  if (showOSDrives.value) {
+    return diskStore.disks;
+  }
+
+  return diskStore.disks.map(disk => ({
+    ...disk,
+    partitions: disk.partitions?.filter(partition => !isOSDrive(partition)) || []
+  })).filter(disk => disk.partitions.length > 0);
+});
 
 // For mount dialog
 const mountDialogOpen = ref(false);
@@ -35,6 +69,12 @@ const partitionToUnmount = ref<Partition | null>(null);
 const infoDialogOpen = ref(false);
 const partitionInfo = ref<Partition | null>(null);
 
+// For label dialog
+const labelDialogOpen = ref(false);
+const partitionToLabel = ref<Partition | null>(null);
+const newLabel = ref('');
+const labelingInProgress = ref(false);
+
 const mountOptions = ref('');
 const mountReadOnly = ref(false);
 const mountNoexec = ref(false);
@@ -42,6 +82,17 @@ const mountSync = ref(false);
 const mountSetUid = ref(false);
 const mountUid = ref(1000);
 const mountGid = ref(1000);
+
+const getPartitionDisplayName = (partition: Partition): string => {
+  if (!partition.uuid) return partition.name || partition.device;
+
+  const customLabel = configStore.getDriveLabel(partition.uuid);
+  if (customLabel) return customLabel;
+
+  if (partition.label) return partition.label;
+
+  return partition.name || partition.device;
+};
 
 // Build mount options string
 const buildMountOptionsString = (): string => {
@@ -82,13 +133,57 @@ const confirmUnmount = (partition: Partition): void => {
   unmountConfirmOpen.value = true;
 };
 
+// Show label dialog
+const showLabelDialog = (partition: Partition): void => {
+  console.log('🏷️ Trying to label partition:', partition);
+
+  if (!partition.uuid) {
+    notificationStore.error(`Cannot label partition "${partition.name || partition.device}" - no UUID available`, {
+      icon: 'error'
+    });
+    return;
+  }
+
+  partitionToLabel.value = partition;
+  const existingLabel = configStore.getDriveLabel(partition.uuid);
+  newLabel.value = existingLabel || '';
+  labelDialogOpen.value = true;
+};
+
+// Save partition label
+const savePartitionLabel = async (): Promise<void> => {
+  if (!partitionToLabel.value || !partitionToLabel.value.uuid) return;
+
+  await withApiLoading(
+      labelingInProgress,
+      async () => {
+        await configStore.setDriveLabel(partitionToLabel.value!.uuid!, newLabel.value);
+
+        labelDialogOpen.value = false;
+
+        const labelText = newLabel.value.trim() === '' ? 'removed' : `set to "${newLabel.value}"`;
+        notificationStore.success(`Partition label ${labelText}`, {
+          icon: 'label'
+        });
+
+        return true;
+      },
+      {
+        showSuccessNotification: false,
+        showErrorNotification: true,
+        errorMessage: 'Failed to update partition label'
+      }
+  );
+};
+
 const openMountDialog = (partition: Partition): void => {
   selectedPartition.value = partition;
 
   if (partition.uuid) {
     mountPath.value = `/mnt/${partition.uuid}`;
   } else {
-    const deviceName = partition.device.replace('/dev/', '');
+    // Use partition name if available, fallback to device path
+    const deviceName = (partition.name || partition.device).replace('/dev/', '');
     mountPath.value = `/mnt/${deviceName}`;
   }
 
@@ -96,7 +191,11 @@ const openMountDialog = (partition: Partition): void => {
 
   const fstype = partition.file_system?.toLowerCase() || '';
 
-  if (fstype.includes('ntfs')) {
+  // Handle ExFAT specifically (common in the new format)
+  if (fstype.includes('exfat')) {
+    mountOptions.value = 'uid=1000,gid=1000,utf8=1';
+    mountSetUid.value = true;
+  } else if (fstype.includes('ntfs')) {
     mountOptions.value = 'uid=1000,gid=1000,dmask=027,fmask=137';
     mountSetUid.value = true;
   } else if (fstype.includes('fat')) {
@@ -184,6 +283,12 @@ const fetchDisks = async (show_notif: boolean): Promise<void> => {
 
     await diskStore.fetchDisks();
 
+    // Add debug logging to see the processed data
+    console.log('🔍 Fetched disks:', diskStore.disks);
+    if (diskStore.disks.length > 0) {
+      console.log('🔍 First disk partitions:', diskStore.disks[0].partitions);
+    }
+
     if(show_notif) {
       notificationStore.success('Storage devices refreshed', {
         icon: 'refresh',
@@ -200,7 +305,10 @@ const fetchDisks = async (show_notif: boolean): Promise<void> => {
 };
 
 onMounted(async () => {
-  await fetchDisks(false);
+  await Promise.all([
+    fetchDisks(false),
+    configStore.fetchConfigs()
+  ]);
 });
 </script>
 
@@ -208,22 +316,28 @@ onMounted(async () => {
   <div>
     <div class="row items-center justify-between q-mb-md">
       <div class="text-h6 q-mb-md">Storage Manager</div>
-      <q-btn
-          round
-          dense
-          flat
-          color="primary"
-          icon="refresh"
-          @click="fetchDisks(true)"
-          :loading="diskStore.loading"
-          :disable="diskStore.loading"
-          class="q-ml-md"
-          title="Reload Devices"
-      >
-        <q-tooltip>Reload Devices</q-tooltip>
-      </q-btn>
+      <div class="row items-center q-gutter-sm">
+        <q-toggle
+            v-model="showOSDrives"
+            label="Show OS Drives"
+            color="primary"
+            class="text-caption"
+        />
+        <q-btn
+            round
+            dense
+            flat
+            color="primary"
+            icon="refresh"
+            @click="fetchDisks(true)"
+            :loading="diskStore.loading"
+            :disable="diskStore.loading"
+            title="Reload Devices"
+        >
+          <q-tooltip>Reload Devices</q-tooltip>
+        </q-btn>
+      </div>
     </div>
-
 
     <q-banner v-if="diskStore.error" class="bg-negative text-white q-mb-md">
       <template v-slot:avatar>
@@ -233,8 +347,8 @@ onMounted(async () => {
     </q-banner>
 
     <!-- Disk list -->
-    <div v-if="diskStore.disks.length > 0" :class="{'device-list': true, 'loading-list': diskStore.loading}">
-      <q-card v-for="disk in diskStore.disks" :key="disk.device" class="q-mb-md disk-card">
+    <div v-if="filteredDisks.length > 0" :class="{'device-list': true, 'loading-list': diskStore.loading}">
+      <q-card v-for="disk in filteredDisks" :key="disk.device" class="q-mb-md disk-card">
         <q-card-section>
           <div class="row items-center">
             <!-- Use appropriate icon based on disk type -->
@@ -267,23 +381,45 @@ onMounted(async () => {
                   :class="{
                   'partition-item--mounted': partition.mount_path,
                   'partition-item--unmounted': !partition.mount_path,
+                  'partition-item--os': isOSDrive(partition),
                   'partition-item': true
                 }"
               >
                 <q-item-section avatar>
                   <q-icon :name="partition.mount_path ? 'link' : 'link_off'" />
+                  <q-icon
+                      v-if="isOSDrive(partition)"
+                      name="computer"
+                      size="xs"
+                      color="orange"
+                      class="absolute"
+                      style="top: 28px; right: 10px;"
+                  >
+                    <q-tooltip>OS Drive</q-tooltip>
+                  </q-icon>
                 </q-item-section>
 
                 <q-item-section>
                   <q-item-label>
-                    {{ partition.device }}
+                    <span class="text-weight-medium">{{ getPartitionDisplayName(partition) }}</span>
                     <q-badge v-if="partition.file_system" color="blue-grey-7" class="q-ml-sm">
                       {{ DiskUtils.getFilesystemDescription(partition.file_system) }}
                     </q-badge>
+                    <q-icon
+                        v-if="partition.uuid && configStore.getDriveLabel(partition.uuid)"
+                        name="label"
+                        size="xs"
+                        color="primary"
+                        class="q-ml-xs"
+                    >
+                      <q-tooltip>Custom Label</q-tooltip>
+                    </q-icon>
                   </q-item-label>
 
                   <q-item-label caption>
-                    {{ partition.space_info ? DiskUtils.formatSize(partition.space_info.total_space) : 'Unknown size' }}
+                    {{ partition.device }}
+                    <span v-if="partition.name && partition.name !== partition.device"> ({{ partition.name }})</span>
+                    {{ partition.space_info ? ' • ' + DiskUtils.formatSize(partition.space_info.total_space) : ' • Unknown size' }}
                     <template v-if="partition.mount_path">
                       • Mounted at: <span class="text-primary">{{ partition.mount_path }}</span>
                     </template>
@@ -293,17 +429,17 @@ onMounted(async () => {
                   </q-item-label>
 
                   <q-item-label v-if="partition.label || partition.uuid" caption>
-                    <template v-if="partition.label">
+                    <template v-if="partition.label && !configStore.getDriveLabel(partition.uuid || '')">
                       Label: {{ partition.label }}
                     </template>
                     <template v-if="partition.uuid">
-                      {{ partition.label ? ' • ' : '' }}UUID: {{ partition.uuid }}
+                      {{ (partition.label && !configStore.getDriveLabel(partition.uuid)) ? ' • ' : '' }}UUID: {{ partition.uuid }}
                     </template>
                   </q-item-label>
                 </q-item-section>
 
                 <q-item-section side>
-                  <div class="row items-center">
+                  <div class="row items-center q-gutter-xs">
                     <q-btn
                         v-if="partition.mount_path"
                         color="negative"
@@ -323,19 +459,31 @@ onMounted(async () => {
                         :loading="partition.loading"
                     />
                     <q-btn
-                        v-if="partition.mount_path"
                         color="info"
                         label="Info"
                         flat
                         dense
                         @click="showPartitionInfo(partition)"
                     />
+                    <q-btn
+                        v-if="partition.uuid"
+                        color="secondary"
+                        icon="label"
+                        flat
+                        dense
+                        @click="showLabelDialog(partition)"
+                        title="Set Custom Label"
+                    >
+                      <q-tooltip>Set Custom Label</q-tooltip>
+                    </q-btn>
                   </div>
                 </q-item-section>
               </q-item>
             </q-list>
           </div>
-          <div v-else class="text-grey-7 q-pa-md text-center">No partitions found</div>
+          <div v-else class="text-grey-7 q-pa-md text-center">
+            {{ showOSDrives ? 'No partitions found' : 'No non-OS partitions found' }}
+          </div>
         </q-card-section>
       </q-card>
     </div>
@@ -345,14 +493,83 @@ onMounted(async () => {
       <div class="q-mt-md">Loading storage devices...</div>
     </div>
     <div v-else class="text-center q-pa-xl text-grey-7">
-      No storage devices detected
+      {{ showOSDrives ? 'No storage devices detected' : 'No non-OS storage devices detected' }}
     </div>
+
+    <!-- Label Dialog -->
+    <q-dialog v-model="labelDialogOpen" persistent>
+      <q-card style="width: 450px; max-width: 90vw;">
+        <q-card-section>
+          <div class="text-h6">
+            <q-icon name="label" class="q-mr-sm" />
+            Set Custom Label
+          </div>
+          <div v-if="partitionToLabel" class="text-caption q-mt-sm text-grey-7">
+            <strong>Device:</strong> {{ partitionToLabel.device }}
+            <br v-if="partitionToLabel.uuid" />
+            <span v-if="partitionToLabel.uuid"><strong>UUID:</strong> {{ partitionToLabel.uuid }}</span>
+          </div>
+        </q-card-section>
+
+        <q-card-section>
+          <q-input
+              v-model="newLabel"
+              label="Custom Label"
+              hint="Enter a custom name for this partition"
+              placeholder="e.g., Work Drive, Media Storage, Backup..."
+              maxlength="50"
+              counter
+              clearable
+              autofocus
+              @keyup.enter="savePartitionLabel"
+          >
+            <template v-slot:prepend>
+              <q-icon name="edit" />
+            </template>
+          </q-input>
+
+          <div v-if="partitionToLabel && partitionToLabel.label" class="q-mt-md">
+            <q-chip
+                icon="info"
+                color="blue-grey-2"
+                text-color="blue-grey-8"
+                class="q-mb-xs"
+            >
+              Original label: {{ partitionToLabel.label }}
+            </q-chip>
+          </div>
+
+          <div class="q-mt-md text-caption text-grey-6">
+            <q-icon name="info" size="xs" class="q-mr-xs" />
+            Leave empty to remove the custom label and use the original name
+          </div>
+        </q-card-section>
+
+        <q-card-actions align="right" class="q-pa-md">
+          <q-btn
+              flat
+              label="Cancel"
+              color="grey-7"
+              v-close-popup
+              class="q-mr-sm"
+          />
+          <q-btn
+              unelevated
+              label="Save Label"
+              color="primary"
+              @click="savePartitionLabel"
+              :loading="labelingInProgress"
+              icon="save"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
 
     <!-- Mount Dialog -->
     <q-dialog v-model="mountDialogOpen" persistent>
       <q-card style="width: 500px; max-width: 90vw;">
         <q-card-section>
-          <div class="text-h6">Mount {{ selectedPartition ? selectedPartition.device : 'Partition' }}</div>
+          <div class="text-h6">Mount {{ selectedPartition ? getPartitionDisplayName(selectedPartition) : 'Partition' }}</div>
           <div v-if="selectedPartition" class="text-caption q-mt-sm">
             {{ selectedPartition.space_info ? DiskUtils.formatSize(selectedPartition.space_info.total_space) : 'Unknown size' }} •
             {{ DiskUtils.getFilesystemDescription(selectedPartition.file_system) }}
@@ -441,6 +658,20 @@ onMounted(async () => {
           <q-list dense>
             <q-item>
               <q-item-section>
+                <q-item-label caption>Display Name</q-item-label>
+                <q-item-label>{{ getPartitionDisplayName(partitionInfo) }}</q-item-label>
+              </q-item-section>
+            </q-item>
+
+            <q-item v-if="partitionInfo.name && partitionInfo.name !== partitionInfo.device">
+              <q-item-section>
+                <q-item-label caption>Partition Name</q-item-label>
+                <q-item-label>{{ partitionInfo.name }}</q-item-label>
+              </q-item-section>
+            </q-item>
+
+            <q-item>
+              <q-item-section>
                 <q-item-label caption>Device</q-item-label>
                 <q-item-label>{{ partitionInfo.device }}</q-item-label>
               </q-item-section>
@@ -483,9 +714,16 @@ onMounted(async () => {
               </q-item-section>
             </q-item>
 
+            <q-item v-if="partitionInfo.uuid && configStore.getDriveLabel(partitionInfo.uuid)">
+              <q-item-section>
+                <q-item-label caption>Custom Label</q-item-label>
+                <q-item-label>{{ configStore.getDriveLabel(partitionInfo.uuid) }}</q-item-label>
+              </q-item-section>
+            </q-item>
+
             <q-item v-if="partitionInfo.label">
               <q-item-section>
-                <q-item-label caption>Label</q-item-label>
+                <q-item-label caption>Original Label</q-item-label>
                 <q-item-label>{{ partitionInfo.label }}</q-item-label>
               </q-item-section>
             </q-item>
@@ -519,6 +757,17 @@ onMounted(async () => {
         <q-card-actions align="right">
           <q-btn flat label="Close" color="primary" v-close-popup />
           <q-btn
+              v-if="partitionInfo && partitionInfo.uuid"
+              flat
+              label="Edit Label"
+              color="secondary"
+              icon="label"
+              @click="() => {
+              infoDialogOpen = false;
+              if (partitionInfo) showLabelDialog(partitionInfo);
+            }"
+          />
+          <q-btn
               v-if="partitionInfo && !partitionInfo.mount_path && isMountablePartition(partitionInfo)"
               flat
               label="Mount"
@@ -540,45 +789,46 @@ onMounted(async () => {
           />
         </q-card-actions>
       </q-card>
-    </q-dialog>
+      </q-dialog>
 
-    <!-- Unmount Confirmation Dialog -->
-    <q-dialog v-model="unmountConfirmOpen" persistent>
-      <q-card>
-        <q-card-section class="row items-center">
-          <q-avatar icon="warning" color="warning" text-color="white" />
-          <span class="q-ml-sm">Are you sure you want to unmount this partition?</span>
-        </q-card-section>
+      <!-- Unmount Confirmation Dialog -->
+      <q-dialog v-model="unmountConfirmOpen" persistent>
+        <q-card>
+          <q-card-section class="row items-center">
+            <q-avatar icon="warning" color="warning" text-color="white" />
+            <span class="q-ml-sm">Are you sure you want to unmount this partition?</span>
+          </q-card-section>
 
-        <q-card-section v-if="partitionToUnmount">
-          <div><strong>Device:</strong> {{ partitionToUnmount.device }}</div>
-          <div v-if="partitionToUnmount.file_system">
-            <strong>Filesystem:</strong> {{ DiskUtils.getFilesystemDescription(partitionToUnmount.file_system) }}
-          </div>
-          <div v-if="partitionToUnmount.mount_path">
-            <strong>Mount Point:</strong> {{ partitionToUnmount.mount_path }}
-          </div>
+          <q-card-section v-if="partitionToUnmount">
+            <div><strong>Display Name:</strong> {{ getPartitionDisplayName(partitionToUnmount) }}</div>
+            <div><strong>Device:</strong> {{ partitionToUnmount.device }}</div>
+            <div v-if="partitionToUnmount.file_system">
+              <strong>Filesystem:</strong> {{ DiskUtils.getFilesystemDescription(partitionToUnmount.file_system) }}
+            </div>
+            <div v-if="partitionToUnmount.mount_path">
+              <strong>Mount Point:</strong> {{ partitionToUnmount.mount_path }}
+            </div>
 
-          <q-banner class="q-mt-md bg-warning text-white">
-            <template v-slot:avatar>
-              <q-icon name="info" />
-            </template>
-            Unmounting a partition may interrupt any running processes accessing files on this partition. Make sure all files are closed before proceeding.
-          </q-banner>
-        </q-card-section>
+            <q-banner class="q-mt-md bg-warning text-white">
+              <template v-slot:avatar>
+                <q-icon name="info" />
+              </template>
+              Unmounting a partition may interrupt any running processes accessing files on this partition. Make sure all files are closed before proceeding.
+            </q-banner>
+          </q-card-section>
 
-        <q-card-actions align="right">
-          <q-btn flat label="Cancel" color="primary" v-close-popup />
-          <q-btn
-              flat
-              label="Unmount"
-              color="negative"
-              :loading="partitionToUnmount?.loading"
-              @click="partitionToUnmount && unmountPartition(partitionToUnmount)"
-          />
-        </q-card-actions>
-      </q-card>
-    </q-dialog>
+          <q-card-actions align="right">
+            <q-btn flat label="Cancel" color="primary" v-close-popup />
+            <q-btn
+                flat
+                label="Unmount"
+                color="negative"
+                :loading="partitionToUnmount?.loading"
+                @click="partitionToUnmount && unmountPartition(partitionToUnmount)"
+            />
+          </q-card-actions>
+        </q-card>
+      </q-dialog>
   </div>
 </template>
 
@@ -589,6 +839,10 @@ onMounted(async () => {
 
 .partition-item--unmounted {
   background-color: rgba(0, 0, 0, 0.01);
+}
+
+.partition-item--os {
+  border-left: 3px solid #ff9800;
 }
 
 .partition-item:hover {
@@ -603,6 +857,11 @@ onMounted(async () => {
   opacity: 0.6;
   pointer-events: none;
 }
+
+.device-list .partition-item {
+  padding: 10px 40px 10px 30px;
+}
+
 
 @keyframes shimmer {
   from {

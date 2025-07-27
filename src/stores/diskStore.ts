@@ -11,6 +11,27 @@ export const useDiskStore = defineStore('disk', {
 
     actions: {
         /**
+         * Extract filesystem type and UUID from the new format
+         */
+        parseFileSystem(fileSystemObj: any): { type: string | null, uuid: string | null } {
+            if (!fileSystemObj || typeof fileSystemObj !== 'object') {
+                return { type: null, uuid: null };
+            }
+
+            // Handle the new format like {"Ext4":"uuid"} or {"ExFAT":"uuid"}
+            const entries = Object.entries(fileSystemObj);
+            if (entries.length > 0) {
+                const [fsType, uuid] = entries[0];
+                return {
+                    type: fsType,
+                    uuid: uuid === "00000000-0000-0000-0000-000000000000" ? null : uuid as string
+                };
+            }
+
+            return { type: null, uuid: null };
+        },
+
+        /**
          * Fetch all disks and their partitions
          */
         async fetchDisks() {
@@ -18,30 +39,64 @@ export const useDiskStore = defineStore('disk', {
             this.error = null;
 
             try {
-                const disksData = await get<DiskInfo[]>('api/system/disks', {
+                const disksData = await get<any[]>('api/system/disks', {
                     errorMessage: 'Failed to fetch disks',
                     showErrorNotification: true
                 });
 
-                this.disks = Array.isArray(disksData) ? disksData.map((disk: DiskInfo) => {
-                    const diskWithSize = {
-                        ...disk,
-                        size: disk.total,
-                        used: disk.used,
-                        path: disk.device
+                this.disks = Array.isArray(disksData) ? disksData.map((disk: any) => {
+                    const diskWithSize: DiskInfo = {
+                        device: disk.dev_path || disk.name,
+                        name: disk.name,
+                        model: disk.model || 'Unknown Device',
+                        vendor: disk.vendor,
+                        total: disk.total || 0,
+                        used: disk.used || 0,
+                        path: disk.dev_path || disk.name,
+                        disk_type: disk.disk_type,
+                        usage: disk.usage,
+                        mount_path: disk.mount_path,
+                        file_system: disk.file_system,
+                        partitions: []
                     };
 
-                    diskWithSize.partitions = disk.partitions?.map((partition: Partition) => ({
-                        ...partition,
-                        loading: false,
-                        path: partition.device,
-                        mountpoint: partition.mount_path,
-                        fstype: partition.file_system,
-                        size: partition.space_info?.total_space,
-                    }));
+                    // Process partitions with new format
+                    diskWithSize.partitions = disk.partitions?.map((partition: any) => {
+                        const fsInfo = this.parseFileSystem(partition.file_system);
+
+                        const processedPartition: Partition = {
+                            device: partition.device,
+                            name: partition.name,
+                            number: partition.number,
+                            node: partition.node,
+                            file_system: fsInfo.type || undefined,
+                            uuid: fsInfo.uuid || undefined,
+                            label: partition.label || undefined,
+                            mount_path: partition.mount_path,
+                            space_info: partition.space_info ? {
+                                total_space: partition.space_info.total_space || 0,
+                                used_space: partition.space_info.used_space || 0,
+                                free_space: partition.space_info.free_space || 0
+                            } : {
+                                total_space: 0,
+                                used_space: 0,
+                                free_space: 0
+                            },
+                            loading: false,
+                            // Legacy compatibility fields
+                            path: partition.device,
+                            mountpoint: partition.mount_path,
+                            fstype: fsInfo.type || undefined,
+                            size: partition.space_info?.total_space || 0
+                        };
+
+                        return processedPartition;
+                    }) || [];
 
                     return diskWithSize;
                 }) : [];
+
+                console.log('📀 Processed disks:', this.disks);
             } catch (error) {
                 console.error('Error fetching disks:', error);
                 this.error = error instanceof Error ? error.message : 'Failed to fetch disks';
@@ -88,6 +143,7 @@ export const useDiskStore = defineStore('disk', {
             partition.loading = true;
 
             try {
+                // Handle UUID mounting for new format
                 if (request.by_uuid && !request.uuid && partition.uuid) {
                     request.uuid = partition.uuid;
                 }
@@ -95,6 +151,8 @@ export const useDiskStore = defineStore('disk', {
                 if (request.by_label && !request.label && partition.label) {
                     request.label = partition.label;
                 }
+
+                console.log('🔧 Mounting with request:', request);
 
                 await post('api/disks/mount', request, {
                     successMessage: `Disk mounted at ${request.mount_path}`,
@@ -123,7 +181,7 @@ export const useDiskStore = defineStore('disk', {
 
             for (const disk of this.disks) {
                 const partition = disk.partitions?.find(p =>
-                    p.mountpoint === mountPoint
+                    p.mount_path === mountPoint || p.mountpoint === mountPoint
                 );
 
                 if (partition) {
@@ -198,6 +256,28 @@ export const useDiskStore = defineStore('disk', {
                 this.error = error instanceof Error ? error.message : 'Failed to create mount point';
                 throw error;
             }
+        },
+
+        /**
+         * Get partition by device path
+         */
+        getPartitionByDevice(devicePath: string): Partition | null {
+            for (const disk of this.disks) {
+                const partition = disk.partitions?.find(p => p.device === devicePath);
+                if (partition) return partition;
+            }
+            return null;
+        },
+
+        /**
+         * Get partition by UUID
+         */
+        getPartitionByUUID(uuid: string): Partition | null {
+            for (const disk of this.disks) {
+                const partition = disk.partitions?.find(p => p.uuid === uuid);
+                if (partition) return partition;
+            }
+            return null;
         }
     }
 });

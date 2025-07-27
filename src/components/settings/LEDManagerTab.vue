@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useLEDStore } from '@/stores/ledStore';
 import { useNotificationStore } from '@/stores/notificationStore';
 
@@ -13,15 +13,6 @@ const showResetDialog = ref(false);
 // Computed properties for easier template access
 const currentConfig = computed(() => ledStore.currentBoardConfig?.config);
 const currentBoard = computed(() => ledStore.currentBoardConfig);
-
-// Watch for changes and auto-save to localStorage
-watch(
-    () => [ledStore.boards, ledStore.currentBoard],
-    () => {
-      ledStore.saveToLocalStorage();
-    },
-    { deep: true }
-);
 
 // Color test methods
 const testColorLED = async (color: 'red' | 'green' | 'blue') => {
@@ -59,6 +50,38 @@ const saveConfig = async () => {
   }
 };
 
+// Board selection handler
+const onBoardChange = async (boardId: string) => {
+  try {
+    // Find the new board info before switching
+    const newBoard = ledStore.boards.find(board => board.id === boardId);
+
+    await ledStore.setCurrentBoard(boardId);
+
+    notificationStore.success(`Switched to ${newBoard?.displayName || boardId} and configured RGB pins`, {
+      icon: 'swap_horiz'
+    });
+  } catch (error) {
+    notificationStore.error(`Failed to switch to ${boardId}`, {
+      icon: 'error'
+    });
+  }
+};
+
+// Turn off LEDs
+const turnOffLEDs = async () => {
+  try {
+    await ledStore.turnOffLEDs();
+    notificationStore.info('All LEDs turned off', {
+      icon: 'lightbulb_outline'
+    });
+  } catch (error) {
+    notificationStore.error('Failed to turn off LEDs', {
+      icon: 'error'
+    });
+  }
+};
+
 // Reset to defaults
 const resetDefaults = () => {
   showResetDialog.value = true;
@@ -73,6 +96,11 @@ const confirmReset = () => {
 const cancelReset = () => {
   showResetDialog.value = false;
 };
+
+// Initialize the store on mount
+onMounted(async () => {
+  await ledStore.initializeStore();
+});
 </script>
 
 <template>
@@ -86,14 +114,14 @@ const cancelReset = () => {
           <div class="row items-center q-gutter-md">
             <div class="col-12 col-md-3">
               <q-select
-                  v-model="ledStore.currentBoard"
+                  :model-value="ledStore.currentBoard"
                   :options="ledStore.availableBoards"
                   label="Select Board"
                   outlined
                   dense
                   emit-value
                   map-options
-                  @update:model-value="ledStore.setCurrentBoard"
+                  @update:model-value="onBoardChange"
               />
             </div>
 
@@ -104,7 +132,7 @@ const cancelReset = () => {
               </div>
             </div>
 
-            <div class="col-12 col-md-5">
+            <div class="col-12 col-md-12">
               <div class="row q-gutter-sm">
                 <div class="col">
                   <q-btn
@@ -119,10 +147,21 @@ const cancelReset = () => {
                 </div>
                 <div class="col">
                   <q-btn
+                      @click="turnOffLEDs"
+                      :disable="saving || testing !== null"
+                      color="grey"
+                      label="Turn Off LEDs"
+                      class="full-width"
+                      icon="lightbulb_outline"
+                      outline
+                  />
+                </div>
+                <div class="col">
+                  <q-btn
                       @click="resetDefaults"
                       :disable="saving || testing !== null"
                       color="orange"
-                      label="Reset to Defaults"
+                      label="Reset"
                       class="full-width"
                       icon="refresh"
                       outline
@@ -252,7 +291,7 @@ const cancelReset = () => {
 
 <style scoped>
 .led-manager {
-  max-width: 1200px;
+  max-width: 100%;
 }
 
 .led-test-card {

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { get, post, del } from '@/utils/api';
+import { useConfigStore } from '@/stores/configStore';
 
 export interface LEDConfig {
     red: number;
@@ -34,24 +35,25 @@ export interface LedColorMode {
 }
 
 export const useLEDStore = defineStore('led', () => {
-    const currentBoard = ref<string>('rpi4');
+    const configStore = useConfigStore();
+
     const isTestMode = ref<boolean>(false);
     const lastSaved = ref<Date | null>(null);
     const loading = ref<boolean>(false);
     const error = ref<string | null>(null);
 
-    // Board configurations - will be updated with real pin mappings later
+    // Board configurations with your updated GPIO pins
     const boards = ref<BoardConfig[]>([
         {
             id: 'rpi4',
             name: 'rpi4',
             displayName: 'Raspberry Pi 4',
-            pins: { red: 20, green: 21, blue: 18 },
+            pins: { red: 16, green: 20, blue: 21 },
             config: {
                 red: 0,
                 green: 0,
                 blue: 0,
-                brightness: 0,
+                brightness: 255,
                 enabled: false
             }
         },
@@ -59,12 +61,12 @@ export const useLEDStore = defineStore('led', () => {
             id: 'rock4',
             name: 'rock4',
             displayName: 'Rock Pi 4',
-            pins: { red: 20, green: 21, blue: 18 },
+            pins: { red: 132, green: 134, blue: 135 },
             config: {
                 red: 0,
                 green: 0,
                 blue: 0,
-                brightness: 0,
+                brightness: 255,
                 enabled: false
             }
         },
@@ -72,18 +74,20 @@ export const useLEDStore = defineStore('led', () => {
             id: 'rock5',
             name: 'rock5',
             displayName: 'Rock Pi 5',
-            pins: { red: 20, green: 21, blue: 18 },
+            pins: { red: 32, green: 33, blue: 35 },
             config: {
                 red: 0,
                 green: 0,
                 blue: 0,
-                brightness: 0,
+                brightness: 255,
                 enabled: false
             }
         }
     ]);
 
     // Computed properties
+    const currentBoard = computed(() => configStore.getLEDBoardType());
+
     const currentBoardConfig = computed(() =>
         boards.value.find(board => board.id === currentBoard.value)
     );
@@ -98,7 +102,7 @@ export const useLEDStore = defineStore('led', () => {
     // API Actions
     const getBrightness = async (): Promise<number> => {
         try {
-            const brightness = await get<number>('/api/led/brightness', {
+            const brightness = await get<number>('/led/brightness', {
                 errorMessage: 'Failed to get LED brightness',
                 showErrorNotification: false
             });
@@ -111,7 +115,7 @@ export const useLEDStore = defineStore('led', () => {
 
     const setBrightness = async (brightness: number): Promise<void> => {
         try {
-            await post(`/api/led/brightness/${brightness}`, {}, {
+            await post(`/led/brightness/${brightness}`, {}, {
                 successMessage: `Brightness set to ${brightness}%`,
                 errorMessage: 'Failed to set LED brightness',
                 showSuccessNotification: false,
@@ -131,7 +135,7 @@ export const useLEDStore = defineStore('led', () => {
 
     const getPinValue = async (pin: number): Promise<number> => {
         try {
-            const value = await get<number>(`/api/led/pin/${pin}`, {
+            const value = await get<number>(`/led/pin/${pin}`, {
                 errorMessage: `Failed to get pin ${pin} value`,
                 showErrorNotification: false
             });
@@ -145,7 +149,7 @@ export const useLEDStore = defineStore('led', () => {
     const setPinMode = async (pin: number, color: 'Red' | 'Green' | 'Blue'): Promise<void> => {
         try {
             const payload: PinUpdatePayload = { pin, color };
-            await post('/api/led/pin', payload, {
+            await post('/led/pin', payload, {
                 successMessage: `${color} LED pin set to ${pin}`,
                 errorMessage: `Failed to set ${color} LED pin`,
                 showSuccessNotification: false,
@@ -159,7 +163,7 @@ export const useLEDStore = defineStore('led', () => {
 
     const clearPinModes = async (): Promise<void> => {
         try {
-            await del('/api/led/pin', {
+            await del('/led/pin', {
                 successMessage: 'All LED pins cleared',
                 errorMessage: 'Failed to clear LED pins',
                 showSuccessNotification: true,
@@ -173,7 +177,12 @@ export const useLEDStore = defineStore('led', () => {
 
     const setColorMode = async (colorMode: LedColorMode): Promise<void> => {
         try {
-            await post('/api/led/color', colorMode, {
+            // The API expects {"Solid": [r, g, b]} format
+            const payload = {
+                "Solid": [colorMode.red, colorMode.green, colorMode.blue]
+            };
+
+            await post('/led/color', payload, {
                 successMessage: 'LED color mode updated',
                 errorMessage: 'Failed to set LED color mode',
                 showSuccessNotification: false,
@@ -186,9 +195,35 @@ export const useLEDStore = defineStore('led', () => {
     };
 
     // Local state management actions
-    const setCurrentBoard = (boardId: string) => {
+    const setCurrentBoard = async (boardId: string) => {
         if (boards.value.find(board => board.id === boardId)) {
-            currentBoard.value = boardId;
+            // Clear existing pins when switching boards
+            try {
+                await clearPinModes();
+                console.log('Cleared pins for board switch');
+            } catch (err) {
+                console.error('Failed to clear pins during board switch:', err);
+            }
+
+            // Update the board in config
+            await configStore.setLEDBoardType(boardId);
+
+            // Set up pins for the new board
+            const newBoard = boards.value.find(board => board.id === boardId);
+            if (newBoard) {
+                try {
+                    console.log(`Setting up pins for ${newBoard.displayName}`);
+
+                    // Set up all 3 pins for the new board
+                    await setPinMode(newBoard.pins.red, 'Red');
+                    await setPinMode(newBoard.pins.green, 'Green');
+                    await setPinMode(newBoard.pins.blue, 'Blue');
+
+                    console.log(`Pins configured for ${newBoard.displayName}:`, newBoard.pins);
+                } catch (err) {
+                    console.error('Failed to set up pins for new board:', err);
+                }
+            }
         }
     };
 
@@ -225,26 +260,29 @@ export const useLEDStore = defineStore('led', () => {
             const pin = board.pins[color];
             const colorName = color.charAt(0).toUpperCase() + color.slice(1) as 'Red' | 'Green' | 'Blue';
 
+            console.log(`Testing ${colorName} LED on pin ${pin}`);
+
             // Set the pin mode for testing
             await setPinMode(pin, colorName);
 
-            // Simulate test duration
-            setTimeout(async () => {
-                try {
-                    // Clear the pin after test
-                    await clearPinModes();
-                } catch (err) {
-                    console.error('Failed to clear pin after test:', err);
-                } finally {
-                    isTestMode.value = false;
-                }
-            }, 2000);
+            // Set a test color (full intensity for the tested color)
+            const testColorValues = {
+                red: color === 'red' ? 255 : 0,
+                green: color === 'green' ? 255 : 0,
+                blue: color === 'blue' ? 255 : 0
+            };
+
+            await setColorMode(testColorValues);
+
+            // Keep the test running - don't auto-clear
+            // User can manually switch colors or reset
+            console.log(`${colorName} LED test activated - LED should stay on`);
 
         } catch (err) {
             console.error(`Failed to test ${color} LED:`, err);
             error.value = `Failed to test ${color} LED`;
+        } finally {
             isTestMode.value = false;
-            throw err;
         }
     };
 
@@ -277,7 +315,6 @@ export const useLEDStore = defineStore('led', () => {
             });
 
             lastSaved.value = new Date();
-            saveToLocalStorage();
 
             return { success: true, message: 'LED configuration saved successfully' };
         } catch (err) {
@@ -294,56 +331,43 @@ export const useLEDStore = defineStore('led', () => {
         if (board) {
             // Reset to default values based on board type
             const defaults: Record<string, LEDConfig> = {
-                rpi4: { red: 0, green: 0, blue: 0, brightness: 0, enabled: false },
-                rock4: { red: 0, green: 0, blue: 0, brightness: 0, enabled: false },
-                rock5: { red: 0, green: 0, blue: 0, brightness: 0, enabled: false }
+                rpi4: { red: 0, green: 0, blue: 0, brightness: 255, enabled: false },
+                rock4: { red: 0, green: 0, blue: 0, brightness: 255, enabled: false },
+                rock5: { red: 0, green: 0, blue: 0, brightness: 255, enabled: false }
             };
 
             board.config = { ...defaults[board.id] };
 
-            // Clear hardware pins
+            // Clear hardware pins and turn off LEDs
             try {
                 await clearPinModes();
+                // Turn off all colors
+                await setColorMode({ red: 0, green: 0, blue: 0 });
+                console.log('Reset to defaults - pins cleared and LEDs turned off');
             } catch (err) {
                 console.error('Failed to clear pins during reset:', err);
             }
         }
     };
 
-    // Load/Save local storage (for UI state persistence)
-    const loadSavedConfig = () => {
+    // Add a method to turn off all LEDs without clearing pins
+    const turnOffLEDs = async () => {
         try {
-            const saved = localStorage.getItem('ledConfig');
-            if (saved) {
-                const parsedConfig = JSON.parse(saved);
-                boards.value = parsedConfig.boards || boards.value;
-                currentBoard.value = parsedConfig.currentBoard || currentBoard.value;
-                lastSaved.value = parsedConfig.lastSaved ? new Date(parsedConfig.lastSaved) : null;
-            }
-        } catch (error) {
-            console.error('Failed to load LED configuration from localStorage:', error);
+            await setColorMode({ red: 0, green: 0, blue: 0 });
+            console.log('All LEDs turned off');
+        } catch (err) {
+            console.error('Failed to turn off LEDs:', err);
+            throw err;
         }
     };
 
-    const saveToLocalStorage = () => {
-        try {
-            const configToSave = {
-                boards: boards.value,
-                currentBoard: currentBoard.value,
-                lastSaved: lastSaved.value?.toISOString()
-            };
-            localStorage.setItem('ledConfig', JSON.stringify(configToSave));
-        } catch (error) {
-            console.error('Failed to save LED configuration to localStorage:', error);
-        }
+    // Initialize store - ensure config store is loaded
+    const initializeStore = async () => {
+        await configStore.fetchConfigs();
     };
-
-    // Initialize store
-    loadSavedConfig();
 
     return {
         // State
-        currentBoard,
         isTestMode,
         lastSaved,
         loading,
@@ -351,6 +375,7 @@ export const useLEDStore = defineStore('led', () => {
         boards,
 
         // Getters
+        currentBoard,
         currentBoardConfig,
         availableBoards,
 
@@ -370,6 +395,7 @@ export const useLEDStore = defineStore('led', () => {
         testColor,
         saveConfiguration,
         resetToDefaults,
-        saveToLocalStorage
+        turnOffLEDs,
+        initializeStore
     };
 });

@@ -12,7 +12,7 @@
             @click="selectedTimeframe = option.value"
             :unelevated="selectedTimeframe !== option.value"
             :outline="selectedTimeframe !== option.value"
-            class="q-px-md"
+            class="q-px-md timeframe-btn"
         />
       </q-btn-group>
     </div>
@@ -36,33 +36,42 @@
     <div class="row q-col-gutter-md">
       <!-- Current Plot Status -->
       <div class="col-12 col-md-6">
-        <q-card class="bg-blue-1">
+        <q-card class="status-card plot-status-card">
           <q-card-section>
-            <div class="text-h6 text-blue-9">Current Plot Status</div>
-            <div class="text-caption text-grey-8 q-mb-sm">
+            <div class="text-h6 status-title">
+              <q-icon name="donut_small" class="q-mr-sm" />
+              Current Plot Status
+            </div>
+            <div class="status-subtitle q-mb-sm">
+              <q-icon
+                  :name="farmerStore.isRunning ? 'radio_button_checked' : 'radio_button_unchecked'"
+                  :color="farmerStore.isRunning ? 'positive' : 'negative'"
+                  size="xs"
+                  class="q-mr-xs"
+              />
               {{ farmerStore.isRunning ? 'Live from farmer' : 'Farmer stopped' }}
             </div>
             <div class="row justify-between q-mt-sm">
-              <div class="text-center">
-                <div class="text-caption text-grey-8">OG</div>
-                <div class="text-h5 text-weight-bold">
+              <div class="text-center plot-count-item">
+                <div class="plot-type-label">OG</div>
+                <div class="plot-count-value">
                   {{ currentPlotCounts.og || 0 }}
                 </div>
-                <div class="text-caption">total</div>
+                <div class="plot-count-label">total</div>
               </div>
-              <div class="text-center">
-                <div class="text-caption text-grey-8">NFT</div>
-                <div class="text-h5 text-weight-bold">
+              <div class="text-center plot-count-item">
+                <div class="plot-type-label">NFT</div>
+                <div class="plot-count-value">
                   {{ currentPlotCounts.nft || 0 }}
                 </div>
-                <div class="text-caption">total</div>
+                <div class="plot-count-label">total</div>
               </div>
-              <div class="text-center">
-                <div class="text-caption text-grey-8">Compressed</div>
-                <div class="text-h5 text-weight-bold">
+              <div class="text-center plot-count-item">
+                <div class="plot-type-label">Compressed</div>
+                <div class="plot-count-value">
                   {{ currentPlotCounts.compressed || 0 }}
                 </div>
-                <div class="text-caption">total</div>
+                <div class="plot-count-label">total</div>
               </div>
             </div>
           </q-card-section>
@@ -71,32 +80,44 @@
 
       <!-- Combined Activity Stats -->
       <div class="col-12 col-md-6">
-        <q-card class="bg-green-1">
+        <q-card class="status-card activity-card">
           <q-card-section>
-            <div class="text-h6 text-green-9">Activity ({{ timeframeLabel }})</div>
-            <div class="text-caption text-grey-8">Farming activity summary</div>
+            <div class="text-h6 status-title">
+              <q-icon name="trending_up" class="q-mr-sm" />
+              Activity ({{ timeframeLabel }})
+            </div>
+            <div class="status-subtitle">Farming activity summary</div>
 
-            <div class="row q-col-gutter-md q-mt-xs">
-              <div class="col-4 text-center">
-                <div class="text-caption text-grey-8">Plots Passed</div>
-                <div class="text-h4 text-weight-bold">
+            <div class="row q-col-gutter-md q-mt-xs activity-stats">
+              <div class="col-4 text-center activity-stat">
+                <div class="activity-label">
+                  <q-icon name="filter_alt" size="xs" class="q-mr-xs" />
+                  Plots Passed
+                </div>
+                <div class="activity-value">
                   {{ totalPlotsPassedInTimeframe }}
                 </div>
-                <div class="text-caption">total</div>
+                <div class="activity-unit">total</div>
               </div>
-              <div class="col-4 text-center">
-                <div class="text-caption text-grey-8">Partials Found</div>
-                <div class="text-h4 text-weight-bold">
+              <div class="col-4 text-center activity-stat">
+                <div class="activity-label">
+                  <q-icon name="sensors" size="xs" class="q-mr-xs" />
+                  Partials Found
+                </div>
+                <div class="activity-value">
                   {{ partialsFoundInTimeframe }}
                 </div>
-                <div class="text-caption">total</div>
+                <div class="activity-unit">total</div>
               </div>
-              <div class="col-4 text-center">
-                <div class="text-caption text-grey-8">Proofs Found</div>
-                <div class="text-h4 text-weight-bold">
+              <div class="col-4 text-center activity-stat">
+                <div class="activity-label">
+                  <q-icon name="verified" size="xs" class="q-mr-xs" />
+                  Proofs Found
+                </div>
+                <div class="activity-value">
                   {{ proofsFoundInTimeframe }}
                 </div>
-                <div class="text-caption">total</div>
+                <div class="activity-unit">total</div>
               </div>
             </div>
           </q-card-section>
@@ -131,12 +152,12 @@ const lastKnownPlotCounts = ref({
   compressed: 0
 });
 
-// Chart configuration
+// Chart configuration with dark mode friendly colors
 const legendItems = [
-  { key: 'og', label: 'OG Plots', color: '#4CAF50' },
-  { key: 'nft', label: 'NFT Plots', color: '#FF9800' },
-  { key: 'compressed', label: 'Compressed Plots', color: '#9C27B0' },
-  { key: 'proofs', label: 'Proofs Found', color: '#FFC107' }
+  { key: 'og', label: 'OG Plots', color: '#66BB6A' },
+  { key: 'nft', label: 'NFT Plots', color: '#FFA726' },
+  { key: 'compressed', label: 'Compressed Plots', color: '#AB47BC' },
+  { key: 'proofs', label: 'Proofs Found', color: '#FFCA28' }
 ];
 
 const dataKeys = ['og', 'nft', 'compressed'];
@@ -333,5 +354,192 @@ onMounted(() => {
 </script>
 
 <style scoped>
-/* Add any dashboard-specific styles here */
+/* Light Mode Styles */
+.timeframe-btn {
+  transition: all 0.2s ease;
+}
+
+.status-card {
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: all 0.3s ease;
+}
+
+.status-card:hover {
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  transform: translateY(-2px);
+}
+
+.plot-status-card {
+  background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
+  border-left: 4px solid #2196f3;
+}
+
+.activity-card {
+  background: linear-gradient(135deg, #e8f5e9 0%, #fff3e0 100%);
+  border-left: 4px solid #4caf50;
+}
+
+.status-title {
+  color: #1565c0;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+}
+
+.status-subtitle {
+  color: #666;
+  font-size: 0.875rem;
+  display: flex;
+  align-items: center;
+}
+
+.plot-count-item {
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(10px);
+  width: 30%;
+}
+
+.plot-type-label {
+  font-size: 0.75rem;
+  color: #666;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.plot-count-value {
+  font-size: 1.5rem;
+  font-weight: bold;
+  color: #1565c0;
+  margin: 4px 0;
+}
+
+.plot-count-label {
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.activity-stat {
+  padding: 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(10px);
+  width: 30%;
+}
+
+.activity-label {
+  font-size: 0.75rem;
+  color: #666;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+
+.activity-value {
+  font-size: 1.25rem;
+  font-weight: bold;
+  color: #2e7d32;
+  margin: 4px 0;
+}
+
+.activity-unit {
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.activity-stats {
+  justify-content: space-between;
+  margin-left: 0;
+}
+
+/* Dark Mode Styles */
+.dark-mode .timeframe-btn {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.dark-mode .status-card {
+  background: #1e1e1e;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.dark-mode .status-card:hover {
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.dark-mode .plot-status-card {
+  background: linear-gradient(135deg, rgba(33, 150, 243, 0.1) 0%, rgba(156, 39, 176, 0.1) 100%);
+  border-left: 4px solid #42a5f5;
+}
+
+.dark-mode .activity-card {
+  background: linear-gradient(135deg, rgba(76, 175, 80, 0.1) 0%, rgba(255, 152, 0, 0.1) 100%);
+  border-left: 4px solid #66bb6a;
+}
+
+.dark-mode .status-title {
+  color: #bbdefb;
+}
+
+.dark-mode .status-subtitle {
+  color: #b0bec5;
+}
+
+.dark-mode .plot-count-item,
+.dark-mode .activity-stat {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px);
+}
+
+.dark-mode .plot-type-label,
+.dark-mode .activity-label {
+  color: #b0bec5;
+}
+
+.dark-mode .plot-count-value {
+  color: #bbdefb;
+}
+
+.dark-mode .activity-value {
+  color: #c8e6c9;
+}
+
+.dark-mode .plot-count-label,
+.dark-mode .activity-unit {
+  color: #78909c;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .plot-count-value,
+  .activity-value {
+    font-size: 1.25rem;
+  }
+
+  .status-card {
+    margin-bottom: 1rem;
+  }
+
+  .activity-stat {
+    margin-bottom: 0.5rem;
+  }
+}
+
+
+/* Animation for live indicator */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.dark-mode .q-icon[name="radio_button_checked"] {
+  animation: pulse 2s infinite;
+}
 </style>
