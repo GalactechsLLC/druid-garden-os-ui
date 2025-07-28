@@ -1,21 +1,10 @@
 import {defineStore} from 'pinia';
 import {computed, nextTick, ref} from 'vue';
-import {
-    DEFAULT_FARMER_CONFIG,
-    type FarmerConfig,
-    type FarmerState,
-    type LogEntry,
-} from '@/types/farmer';
-import {
-    farmerStateGet,
-    startFarmerPost,
-    stopFarmerPost,
-    testFarmerConfig,
-    updateFarmerConfig
-} from '@/services/farmer';
+import {DEFAULT_FARMER_CONFIG, type FarmerConfig, type FarmerState, type LogEntry,} from '@/types/farmer';
+import {farmerStateGet, startFarmerPost, stopFarmerPost, testFarmerConfig, updateFarmerConfig} from '@/services/farmer';
 import {useNotificationStore} from '@/stores/notificationStore';
-import {get} from "@/utils/api.ts";
-import { useFarmerChartStore } from '@/stores/farmerChartStore';
+import {get, post} from "@/utils/api.ts";
+import {useFarmerChartStore} from '@/stores/farmerChartStore';
 
 export const useFarmerStore = defineStore('farmer', () => {
     const notificationStore = useNotificationStore();
@@ -307,6 +296,28 @@ export const useFarmerStore = defineStore('farmer', () => {
         stopAutoRefresh();
     }
 
+    // Get pool login URL for a specific launcher ID or the first one
+// Only works when farmer config is valid and can start
+    async function getPoolLoginUrl(launcherId?: string) {
+        if (!canStartFarmer.value) {
+            throw new Error('Cannot get pool login URL: Farmer configuration is not ready');
+        }
+
+        try {
+            const payload = launcherId ? { launcher_id: launcherId } : null;
+            return await post('/farmer/pool/login', payload, {
+                errorMessage: 'Failed to get pool login URL',
+                showErrorNotification: false
+            });
+        } catch (err) {
+            const errorMessage = err instanceof Error ? err.message : 'Failed to get pool login URL';
+            notificationStore.error(errorMessage);
+            throw err;
+        }
+    }
+
+
+
     return {
         isRunning,
         farmer,
@@ -344,6 +355,7 @@ export const useFarmerStore = defineStore('farmer', () => {
         refreshData,
         resetConfig,
         initialize,
-        cleanup
+        cleanup,
+        getPoolLoginUrl
     };
 });

@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import type { DiskInfo, MountRequest, Partition } from "@/types/disk";
-import { get, post } from "@/utils/api";
+import { get, post, del } from "@/utils/api";
 
 export const useDiskStore = defineStore('disk', {
     state: () => ({
@@ -17,8 +17,6 @@ export const useDiskStore = defineStore('disk', {
             if (!fileSystemObj || typeof fileSystemObj !== 'object') {
                 return { type: null, uuid: null };
             }
-
-            // Handle the new format like {"Ext4":"uuid"} or {"ExFAT":"uuid"}
             const entries = Object.entries(fileSystemObj);
             if (entries.length > 0) {
                 const [fsType, uuid] = entries[0];
@@ -278,6 +276,51 @@ export const useDiskStore = defineStore('disk', {
                 if (partition) return partition;
             }
             return null;
+        },
+
+        /**
+         * Toggle auto-mount for a partition (works with your config store)
+         */
+        async toggleAutoMount(partition: Partition, enable: boolean, mountPath?: string): Promise<void> {
+            if (!partition.uuid) {
+                throw new Error('Cannot configure auto-mount - partition has no UUID');
+            }
+
+            const key = `auto-mount-${partition.uuid}`;
+
+            try {
+                if (enable) {
+                    const path = mountPath || `/mnt/${partition.uuid}`;
+
+                    // Create new config entry using your config store structure
+                    const configData = {
+                        key: key,
+                        value: path,
+                        category: 'preferences',
+                        system: 0,
+                        description: `Auto-mount configuration for partition ${partition.device}`,
+                        plugin: 'disk_manager',
+                        type: 'text'
+                    };
+
+                    await post('config/' + key, configData, {
+                        successMessage: `Auto-mount enabled for partition`,
+                        errorMessage: 'Failed to enable auto-mount',
+                        showSuccessNotification: true,
+                        showErrorNotification: true
+                    });
+                } else {
+                    await del('config/' + key, {
+                        successMessage: `Auto-mount disabled for partition`,
+                        errorMessage: 'Failed to disable auto-mount',
+                        showSuccessNotification: true,
+                        showErrorNotification: true
+                    });
+                }
+            } catch (error) {
+                console.error('Error toggling auto-mount:', error);
+                throw error;
+            }
         }
     }
 });

@@ -43,6 +43,76 @@ const isOSDrive = (partition: Partition): boolean => {
       false;
 };
 
+// Auto-mount functionality
+const autoMountTogglingPartitions = ref<Set<string>>(new Set());
+
+// Check if a partition has auto-mount enabled
+const isAutoMountEnabled = (partition: Partition): boolean => {
+  if (!partition.uuid) return false;
+  const key = `auto-mount-${partition.uuid}`;
+  const config = configStore.configs.find(c => c.key === key);
+  return !!config;
+};
+
+// Get the auto-mount path for a partition
+const getAutoMountPath = (partition: Partition): string => {
+  if (!partition.uuid) return '';
+  const key = `auto-mount-${partition.uuid}`;
+  const config = configStore.configs.find(c => c.key === key);
+  return config?.value || '';
+};
+
+// Toggle auto-mount for a partition
+const toggleAutoMount = async (partition: Partition): Promise<void> => {
+  if (!partition.uuid) {
+    notificationStore.error('Cannot enable auto-mount - partition has no UUID', {
+      icon: 'error'
+    });
+    return;
+  }
+
+  const partitionId = partition.device;
+  autoMountTogglingPartitions.value.add(partitionId);
+
+  try {
+    const key = `auto-mount-${partition.uuid}`;
+    const isCurrentlyEnabled = isAutoMountEnabled(partition);
+
+    if (isCurrentlyEnabled) {
+      // Disable auto-mount by removing the config entry
+      await configStore.deleteConfig(key);
+
+      notificationStore.success(`Auto-mount disabled for ${getPartitionDisplayName(partition)}`, {
+        icon: 'toggle_off'
+      });
+    } else {
+      // Enable auto-mount by creating the config entry
+      const defaultMountPath = `/mnt/${partition.uuid}`;
+
+      await configStore.createConfig({
+        key: key,
+        value: defaultMountPath,
+        category: 'preferences',
+        system: 0,
+        description: `Auto-mount configuration for partition ${partition.device}`,
+        plugin: 'disk_manager',
+        type: 'text'
+      });
+
+      notificationStore.success(`Auto-mount enabled for ${getPartitionDisplayName(partition)} at ${defaultMountPath}`, {
+        icon: 'toggle_on'
+      });
+    }
+  } catch (error) {
+    console.error('Error toggling auto-mount:', error);
+    notificationStore.error('Failed to update auto-mount setting', {
+      icon: 'error'
+    });
+  } finally {
+    autoMountTogglingPartitions.value.delete(partitionId);
+  }
+};
+
 // Computed property to filter disks based on OS drive visibility
 const filteredDisks = computed(() => {
   if (showOSDrives.value) {
@@ -60,6 +130,7 @@ const mountDialogOpen = ref(false);
 const selectedPartition = ref<Partition | null>(null);
 const mountPath = ref('');
 const mountingInProgress = ref(false);
+const enableAutoMountOnMount = ref(false);
 
 // For unmount confirm dialog
 const unmountConfirmOpen = ref(false);
@@ -119,6 +190,7 @@ const resetMountOptions = () => {
   mountSetUid.value = false;
   mountUid.value = 1000;
   mountGid.value = 1000;
+  enableAutoMountOnMount.value = false;
 };
 
 // Show partition info dialog
@@ -223,6 +295,9 @@ const openMountDialog = (partition: Partition): void => {
 
   resetMountOptions();
 
+  // Set auto-mount checkbox to current state
+  enableAutoMountOnMount.value = isAutoMountEnabled(partition);
+
   const fstype = partition.file_system?.toLowerCase() || '';
 
   // Handle ExFAT specifically (common in the new format)
@@ -250,7 +325,8 @@ const mountPartition = async (): Promise<void> => {
       async () => {
         const mountRequest: MountRequest = {
           device_path: selectedPartition.value!.device,
-          mount_path: mountPath.value
+          mount_path: mountPath.value,
+          auto_mount: enableAutoMountOnMount.value
         };
 
         const optionsString = buildMountOptionsString();
@@ -274,7 +350,7 @@ const mountPartition = async (): Promise<void> => {
       },
       {
         showSuccessNotification: true,
-        successMessage: `Partition ${selectedPartition.value.device} mounted at ${mountPath.value}`,
+        successMessage: `Partition ${selectedPartition.value.device} mounted at ${mountPath.value}${enableAutoMountOnMount.value ? ' with auto-mount enabled' : ''}`,
         showErrorNotification: true,
         errorMessage: 'Failed to mount partition'
       }
@@ -373,13 +449,6 @@ onMounted(async () => {
       </div>
     </div>
 
-    <q-banner v-if="diskStore.error" class="bg-negative text-white q-mb-md">
-      <template v-slot:avatar>
-        <q-icon name="error" />
-      </template>
-      {{ diskStore.error }}
-    </q-banner>
-
     <!-- Disk list -->
     <div v-if="filteredDisks.length > 0" :class="{'device-list': true, 'loading-list': diskStore.loading}">
       <q-card v-for="disk in filteredDisks" :key="disk.device" class="q-mb-md disk-card">
@@ -416,6 +485,7 @@ onMounted(async () => {
                   'partition-item--mounted': partition.mount_path,
                   'partition-item--unmounted': !partition.mount_path,
                   'partition-item--os': isOSDrive(partition),
+                  'partition-item--auto-mount': isAutoMountEnabled(partition),
                   'partition-item': true
                 }"
               >
@@ -430,6 +500,16 @@ onMounted(async () => {
                       style="top: 28px; right: 10px;"
                   >
                     <q-tooltip>OS Drive</q-tooltip>
+                  </q-icon>
+                  <q-icon
+                      v-if="isAutoMountEnabled(partition)"
+                      name="sync"
+                      size="xs"
+                      color="green"
+                      class="absolute"
+                      style="top: 28px; right: 25px;"
+                  >
+                    <q-tooltip>Auto-mount enabled</q-tooltip>
                   </q-icon>
                 </q-item-section>
 
@@ -448,6 +528,9 @@ onMounted(async () => {
                     >
                       <q-tooltip>Custom Label</q-tooltip>
                     </q-icon>
+                    <q-badge v-if="isAutoMountEnabled(partition)" color="green" class="q-ml-sm">
+                      Auto-mount
+                    </q-badge>
                   </q-item-label>
 
                   <q-item-label caption>
@@ -459,6 +542,9 @@ onMounted(async () => {
                     </template>
                     <template v-else>
                       • Not mounted
+                    </template>
+                    <template v-if="isAutoMountEnabled(partition)">
+                      • Auto-mount: <span class="text-green">{{ getAutoMountPath(partition) }}</span>
                     </template>
                   </q-item-label>
 
@@ -474,6 +560,20 @@ onMounted(async () => {
 
                 <q-item-section side>
                   <div class="row items-center q-gutter-xs">
+                    <!-- Auto-mount toggle -->
+                    <q-toggle
+                        v-if="partition.uuid && !isOSDrive(partition)"
+                        :model-value="isAutoMountEnabled(partition)"
+                        @update:model-value="toggleAutoMount(partition)"
+                        :loading="autoMountTogglingPartitions.has(partition.device)"
+                        :disable="autoMountTogglingPartitions.has(partition.device)"
+                        color="green"
+                        size="sm"
+                        dense
+                    >
+                      <q-tooltip>{{ isAutoMountEnabled(partition) ? 'Disable' : 'Enable' }} auto-mount</q-tooltip>
+                    </q-toggle>
+
                     <q-btn
                         v-if="partition.mount_path"
                         color="negative"
@@ -624,6 +724,17 @@ onMounted(async () => {
                 />
               </div>
 
+              <div class="col-12" v-if="selectedPartition && selectedPartition.uuid">
+                <q-toggle
+                    v-model="enableAutoMountOnMount"
+                    label="Enable auto-mount"
+                    color="green"
+                />
+                <div class="text-caption text-grey-6 q-mt-xs">
+                  If enabled, this partition will be automatically mounted at this location on system startup
+                </div>
+              </div>
+
               <div class="col-12">
                 <q-expansion-item
                     switch-toggle-side
@@ -725,6 +836,13 @@ onMounted(async () => {
               </q-item-section>
             </q-item>
 
+            <q-item v-if="partitionInfo.uuid && isAutoMountEnabled(partitionInfo)">
+              <q-item-section>
+                <q-item-label caption>Auto-mount Path</q-item-label>
+                <q-item-label class="text-green">{{ getAutoMountPath(partitionInfo) }}</q-item-label>
+              </q-item-section>
+            </q-item>
+
             <q-item v-if="partitionInfo.space_info">
               <q-item-section>
                 <q-item-label caption>Total Space</q-item-label>
@@ -802,6 +920,17 @@ onMounted(async () => {
             }"
           />
           <q-btn
+              v-if="partitionInfo && partitionInfo.uuid && !isOSDrive(partitionInfo)"
+              flat
+              :label="isAutoMountEnabled(partitionInfo) ? 'Disable Auto-mount' : 'Enable Auto-mount'"
+              :color="isAutoMountEnabled(partitionInfo) ? 'negative' : 'positive'"
+              :icon="isAutoMountEnabled(partitionInfo) ? 'toggle_off' : 'toggle_on'"
+              @click="() => {
+              infoDialogOpen = false;
+              if (partitionInfo) toggleAutoMount(partitionInfo);
+            }"
+          />
+          <q-btn
               v-if="partitionInfo && !partitionInfo.mount_path && isMountablePartition(partitionInfo)"
               flat
               label="Mount"
@@ -823,46 +952,49 @@ onMounted(async () => {
           />
         </q-card-actions>
       </q-card>
-      </q-dialog>
+    </q-dialog>
 
-      <!-- Unmount Confirmation Dialog -->
-      <q-dialog v-model="unmountConfirmOpen" persistent>
-        <q-card>
-          <q-card-section class="row items-center">
-            <q-avatar icon="warning" color="warning" text-color="white" />
-            <span class="q-ml-sm">Are you sure you want to unmount this partition?</span>
-          </q-card-section>
+    <!-- Unmount Confirmation Dialog -->
+    <q-dialog v-model="unmountConfirmOpen" persistent>
+      <q-card>
+        <q-card-section class="row items-center">
+          <q-avatar icon="warning" color="warning" text-color="white" />
+          <span class="q-ml-sm">Are you sure you want to unmount this partition?</span>
+        </q-card-section>
 
-          <q-card-section v-if="partitionToUnmount">
-            <div><strong>Display Name:</strong> {{ getPartitionDisplayName(partitionToUnmount) }}</div>
-            <div><strong>Device:</strong> {{ partitionToUnmount.device }}</div>
-            <div v-if="partitionToUnmount.file_system">
-              <strong>Filesystem:</strong> {{ DiskUtils.getFilesystemDescription(partitionToUnmount.file_system) }}
-            </div>
-            <div v-if="partitionToUnmount.mount_path">
-              <strong>Mount Point:</strong> {{ partitionToUnmount.mount_path }}
-            </div>
+        <q-card-section v-if="partitionToUnmount">
+          <div><strong>Display Name:</strong> {{ getPartitionDisplayName(partitionToUnmount) }}</div>
+          <div><strong>Device:</strong> {{ partitionToUnmount.device }}</div>
+          <div v-if="partitionToUnmount.file_system">
+            <strong>Filesystem:</strong> {{ DiskUtils.getFilesystemDescription(partitionToUnmount.file_system) }}
+          </div>
+          <div v-if="partitionToUnmount.mount_path">
+            <strong>Mount Point:</strong> {{ partitionToUnmount.mount_path }}
+          </div>
+          <div v-if="partitionToUnmount.uuid && isAutoMountEnabled(partitionToUnmount)">
+            <strong>Auto-mount:</strong> <span class="text-green">Enabled ({{ getAutoMountPath(partitionToUnmount) }})</span>
+          </div>
 
-            <q-banner class="q-mt-md bg-warning text-white">
-              <template v-slot:avatar>
-                <q-icon name="info" />
-              </template>
-              Unmounting a partition may interrupt any running processes accessing files on this partition. Make sure all files are closed before proceeding.
-            </q-banner>
-          </q-card-section>
+          <q-banner class="q-mt-md bg-warning text-white">
+            <template v-slot:avatar>
+              <q-icon name="info" />
+            </template>
+            Unmounting a partition may interrupt any running processes accessing files on this partition. Make sure all files are closed before proceeding.
+          </q-banner>
+        </q-card-section>
 
-          <q-card-actions align="right">
-            <q-btn flat label="Cancel" color="primary" v-close-popup />
-            <q-btn
-                flat
-                label="Unmount"
-                color="negative"
-                :loading="partitionToUnmount?.loading"
-                @click="partitionToUnmount && unmountPartition(partitionToUnmount)"
-            />
-          </q-card-actions>
-        </q-card>
-      </q-dialog>
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" color="primary" v-close-popup />
+          <q-btn
+              flat
+              label="Unmount"
+              color="negative"
+              :loading="partitionToUnmount?.loading"
+              @click="partitionToUnmount && unmountPartition(partitionToUnmount)"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </div>
 </template>
 
@@ -877,6 +1009,10 @@ onMounted(async () => {
 
 .partition-item--os {
   border-left: 3px solid #ff9800;
+}
+
+.partition-item--auto-mount {
+  border-right: 3px solid #4caf50;
 }
 
 .partition-item:hover {
@@ -895,7 +1031,6 @@ onMounted(async () => {
 .device-list .partition-item {
   padding: 10px 40px 10px 30px;
 }
-
 
 @keyframes shimmer {
   from {

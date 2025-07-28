@@ -51,4 +51,5 @@ export interface MountRequest {
     uuid?: string;
     by_label?: boolean;
     label?: string;
+    auto_mount?: boolean;
 }

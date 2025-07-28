@@ -6,13 +6,13 @@ export interface FarmerConfig {
     fullnode_rpc_host: string;
     fullnode_rpc_port: number;
 
-    farmer_info: {
+    farmer_info: Array<{
         farmer_secret_key: string;
         launcher_id: string;
         pool_secret_key: string;
         owner_secret_key: string;
         auth_secret_key: string;
-    };
+    }>;
 
     pool_info: Array<{
         launcher_id: string;
@@ -172,13 +172,13 @@ export const DEFAULT_FARMER_CONFIG: FarmerConfig = {
     fullnode_rpc_host: 'druid.garden',
     fullnode_rpc_port: 443,
 
-    farmer_info: {
+    farmer_info: [{
         farmer_secret_key: '',
         launcher_id: '',
         pool_secret_key: '',
         owner_secret_key: '',
         auth_secret_key: '',
-    },
+    }],
 
     pool_info: [{
         launcher_id: '',

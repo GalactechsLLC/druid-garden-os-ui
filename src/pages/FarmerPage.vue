@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import {ref, onMounted, onUnmounted, computed, watch} from 'vue'
-import { formatBytes } from '@/utils/format'
+import {computed, onMounted, onUnmounted, ref, watch} from 'vue'
+import {formatBytes} from '@/utils/format'
 import FarmerConfig from "@/components/setup/FarmerConfig.vue";
-import { useRouter } from 'vue-router';
+import {useRouter} from 'vue-router';
 
 import {useFarmerStore} from "@/stores/farmerStore.ts";
 import {useFarmerChartStore} from "@/stores/farmerChartStore.ts";
@@ -11,7 +11,7 @@ import {useDiskStore} from "@/stores/diskStore.ts";
 import Notification from "@/components/Notification.vue";
 import FarmerLogs from "@/components/farmer/FarmerLogs.vue";
 import FarmerChartComponent from "@/components/farmer/FarmerChart.vue";
-import { useLogService } from '@/services/farmerLog.ts';
+import {useLogService} from '@/services/farmerLog.ts';
 
 const router = useRouter();
 const notificationStore = useNotificationStore()
@@ -291,6 +291,63 @@ function getTotalPlotSpace() {
   return "0 Bytes";
 }
 
+const showPoolLoginDialog = ref(false);
+const gettingPoolLogin = ref(false);
+const poolLoginUrl = ref<string>('');
+
+// Add this computed property to check if farmer has launcher_id
+const hasLauncherId = computed(() => {
+  return farmerStore.farmer.config.farmer_info.some(info =>
+      info.launcher_id && info.launcher_id.trim() !== ''
+  );
+});
+
+// Updated methods
+const handlePoolLoginClick = () => {
+  showPoolLoginDialog.value = true;
+  poolLoginUrl.value = '';
+};
+
+const closePoolLoginDialog = () => {
+  showPoolLoginDialog.value = false;
+  poolLoginUrl.value = '';
+};
+
+const openFarmerConfigFromPool = () => {
+  // Close pool dialog and open config
+  showPoolLoginDialog.value = false;
+  openFarmerConfigModal();
+};
+
+const handleGetPoolLogin = async () => {
+  gettingPoolLogin.value = true;
+
+  try {
+    poolLoginUrl.value = await farmerStore.getPoolLoginUrl();
+    notificationStore.success('Pool login URL generated successfully');
+  } catch (error) {
+    console.error('Failed to get pool login URL:', error);
+    // Error notification is already handled in the store
+  } finally {
+    gettingPoolLogin.value = false;
+  }
+};
+
+const copyPoolLoginUrl = async () => {
+  try {
+    await navigator.clipboard.writeText(poolLoginUrl.value);
+    notificationStore.success('Pool login URL copied to clipboard');
+  } catch (error) {
+    notificationStore.error('Failed to copy URL to clipboard');
+  }
+};
+
+const openPoolLoginUrl = () => {
+  if (poolLoginUrl.value) {
+    window.open(poolLoginUrl.value, '_blank');
+  }
+};
+
 let refreshInterval: number | null = null;
 
 onMounted(async () => {
@@ -403,6 +460,17 @@ onUnmounted(() => {
             :disable="!farmerStore.canStopFarmer || farmerStore.processingAction"
             :loading="farmerStore.processingAction"
         />
+
+        <!-- Pool Login Button -->
+        <q-btn
+            color="secondary"
+            icon="hub"
+            label="Pool Login"
+            @click="handlePoolLoginClick"
+            :disable="!farmerStore.canStartFarmer && !farmerStore.isRunning"
+        >
+          <q-tooltip>{{ hasLauncherId ? 'Get pool login URL' : 'Configure pool settings first' }}</q-tooltip>
+        </q-btn>
 
         <!-- Config Button -->
         <q-btn
@@ -645,6 +713,92 @@ onUnmounted(() => {
       @import-success="onImportSuccess"
       @import-error="onImportError"
   />
+  <!-- Pool Login Dialog -->
+  <q-dialog v-model="showPoolLoginDialog" persistent>
+    <q-card style="min-width: 400px; max-width: 600px;">
+      <q-card-section>
+        <div class="text-h6">
+          <q-icon name="hub" class="q-mr-sm" />
+          Pool Login
+        </div>
+      </q-card-section>
+
+      <q-card-section v-if="!hasLauncherId">
+        <div class="text-center q-py-lg">
+          <q-icon name="info" size="3rem" color="info" class="q-mb-md" />
+          <div class="text-h6 q-mb-sm">Not in a Pool</div>
+          <div class="text-body2 text-grey-6 q-mb-lg">
+            You haven't configured a pool yet. To join a pool, you need to set up your launcher ID and pool information in the farmer configuration.
+          </div>
+          <q-btn
+              color="primary"
+              icon="settings"
+              label="Configure Farmer"
+              @click="openFarmerConfigFromPool"
+          />
+        </div>
+      </q-card-section>
+
+      <q-card-section v-else>
+        <div class="text-body2 text-grey-7 q-mb-md">
+          Generate a login URL for your farming pool dashboard.
+        </div>
+
+        <div class="q-mb-md">
+          <q-btn
+              color="primary"
+              label="Generate Login URL"
+              icon="link"
+              @click="handleGetPoolLogin"
+              :loading="gettingPoolLogin"
+              class="full-width"
+          />
+        </div>
+
+        <div v-if="poolLoginUrl" class="q-mt-md">
+          <q-input
+              v-model="poolLoginUrl"
+              label="Pool Login URL"
+              readonly
+              outlined
+              dense
+              type="textarea"
+              rows="3"
+          >
+            <template v-slot:append>
+              <div class="column q-gutter-xs">
+                <q-btn
+                    flat
+                    dense
+                    icon="content_copy"
+                    @click="copyPoolLoginUrl"
+                    title="Copy URL"
+                    size="sm"
+                />
+                <q-btn
+                    flat
+                    dense
+                    icon="open_in_new"
+                    @click="openPoolLoginUrl"
+                    title="Open in new tab"
+                    size="sm"
+                />
+              </div>
+            </template>
+          </q-input>
+        </div>
+      </q-card-section>
+
+      <q-card-actions align="right">
+        <q-btn
+            flat
+            label="Close"
+            color="grey-7"
+            @click="closePoolLoginDialog"
+        />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
   <Notification />
 </template>
 
