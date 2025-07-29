@@ -296,16 +296,18 @@ export const useFarmerStore = defineStore('farmer', () => {
         stopAutoRefresh();
     }
 
-    // Get pool login URL for a specific launcher ID or the first one
-// Only works when farmer config is valid and can start
     async function getPoolLoginUrl(launcherId?: string) {
         if (!canStartFarmer.value) {
             throw new Error('Cannot get pool login URL: Farmer configuration is not ready');
         }
-
+        if (!launcherId) {
+            throw new Error('Cannot get pool login URL: Farmer configuration needs launcherId');
+        }
         try {
-            const payload = launcherId ? { launcher_id: launcherId } : null;
-            return await post('/farmer/pool/login', payload, {
+            return await get('/farmer/pool/login?'+ launcherId, {
+                headers: {
+                    'Content-Type': 'application/json'
+                },
                 errorMessage: 'Failed to get pool login URL',
                 showErrorNotification: false
             });
@@ -316,7 +318,32 @@ export const useFarmerStore = defineStore('farmer', () => {
         }
     }
 
+    async function loadFarmerConfigFromSettings() {
+        try {
+            const configs = await get('/config', {
+                errorMessage: 'Failed to load configuration',
+                showErrorNotification: false
+            });
 
+            if (configs && Array.isArray(configs)) {
+                const farmerConfigEntry = configs.find(c => c.key === 'farmer_config');
+                if (farmerConfigEntry && farmerConfigEntry.value) {
+                    try {
+                        const parsedConfig = JSON.parse(farmerConfigEntry.value);
+                        farmer.value.config = parsedConfig;
+                        console.log('Farmer config loaded from settings:', parsedConfig);
+                        return parsedConfig;
+                    } catch (parseError) {
+                        console.error('Failed to parse farmer config JSON:', parseError);
+                    }
+                }
+            }
+            return null;
+        } catch (err) {
+            console.error('Failed to load farmer config from settings:', err);
+            return null;
+        }
+    }
 
     return {
         isRunning,
@@ -356,6 +383,7 @@ export const useFarmerStore = defineStore('farmer', () => {
         resetConfig,
         initialize,
         cleanup,
-        getPoolLoginUrl
+        getPoolLoginUrl,
+        loadFarmerConfigFromSettings
     };
 });

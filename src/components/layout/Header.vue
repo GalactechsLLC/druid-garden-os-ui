@@ -5,14 +5,22 @@ import { useUserStore } from '@/stores/userStore';
 import { useThemeStore } from '@/stores/themeStore';
 import { useDiskStore } from '@/stores/diskStore';
 import { useUpdateStore } from '@/stores/updateStore';
+import { post } from '@/utils/api';
+
 const router = useRouter();
 const userStore = useUserStore();
 const themeStore = useThemeStore();
 const diskStore = useDiskStore();
 const updateStore = useUpdateStore();
+
 const tab = ref('home');
 const showDiskNotification = ref(false);
 const showUpdateModal = ref(false);
+
+// System power control states
+const showRebootConfirm = ref(false);
+const showShutdownConfirm = ref(false);
+const systemActionLoading = ref(false);
 
 const isLoggedIn = computed(() => userStore.isAuthenticated);
 
@@ -38,7 +46,6 @@ const goToUserPage = () => {
 const logout = async () => {
   try {
     userStore.logout();
-
     await router.push('/login');
   } catch (error) {
     console.error('Logout error:', error);
@@ -75,6 +82,47 @@ const confirmUpdate = () => {
 
 const cancelUpdate = () => {
   showUpdateModal.value = false;
+};
+
+// System power control methods
+const confirmReboot = async () => {
+  systemActionLoading.value = true;
+
+  try {
+    await post('/system/reboot', {}, {
+      successMessage: 'Reboot initiated - system will restart in a few seconds',
+      errorMessage: 'Failed to reboot system',
+      showSuccessNotification: true,
+      showErrorNotification: true
+    });
+
+    showRebootConfirm.value = false;
+
+  } catch (error) {
+    console.error('Reboot failed:', error);
+  } finally {
+    systemActionLoading.value = false;
+  }
+};
+
+const confirmShutdown = async () => {
+  systemActionLoading.value = true;
+
+  try {
+    await post('/system/shutdown', {}, {
+      successMessage: 'Shutdown initiated - system will power off in a few seconds',
+      errorMessage: 'Failed to shutdown system',
+      showSuccessNotification: true,
+      showErrorNotification: true
+    });
+
+    showShutdownConfirm.value = false;
+
+  } catch (error) {
+    console.error('Shutdown failed:', error);
+  } finally {
+    systemActionLoading.value = false;
+  }
 };
 
 // Watch for changes in authentication state
@@ -200,6 +248,27 @@ onMounted(async () => {
         </q-menu>
       </q-btn>
 
+      <!-- System Power Menu -->
+      <q-btn flat round icon="more_vert">
+        <q-menu>
+          <q-list style="min-width: 150px">
+            <q-item clickable @click="showRebootConfirm = true">
+              <q-item-section avatar>
+                <q-icon name="restart_alt" color="warning" />
+              </q-item-section>
+              <q-item-section>Reboot</q-item-section>
+            </q-item>
+
+            <q-item clickable @click="showShutdownConfirm = true">
+              <q-item-section avatar>
+                <q-icon name="power_settings_new" color="negative" />
+              </q-item-section>
+              <q-item-section>Shutdown</q-item-section>
+            </q-item>
+          </q-list>
+        </q-menu>
+      </q-btn>
+
       <!-- Mobile menu -->
       <q-btn flat round class="lt-md" icon="menu">
         <q-menu>
@@ -275,6 +344,62 @@ onMounted(async () => {
       </q-btn>
     </q-toolbar>
   </q-header>
+
+  <!-- Reboot Confirmation Dialog -->
+  <q-dialog v-model="showRebootConfirm" persistent>
+    <q-card>
+      <q-card-section class="row items-center">
+        <q-avatar icon="restart_alt" color="warning" text-color="white" />
+        <span class="q-ml-sm text-h6">Reboot System</span>
+      </q-card-section>
+
+      <q-card-section>
+        <div class="text-body1">Are you sure you want to reboot the system?</div>
+        <div class="text-body2 text-grey-6 q-mt-sm">
+          This will restart the device and temporarily interrupt all services.
+        </div>
+      </q-card-section>
+
+      <q-card-actions align="right">
+        <q-btn flat label="Cancel" color="grey-7" @click="showRebootConfirm = false" />
+        <q-btn
+            flat
+            label="Reboot"
+            color="warning"
+            @click="confirmReboot"
+            :loading="systemActionLoading"
+        />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
+
+  <!-- Shutdown Confirmation Dialog -->
+  <q-dialog v-model="showShutdownConfirm" persistent>
+    <q-card>
+      <q-card-section class="row items-center">
+        <q-avatar icon="power_settings_new" color="negative" text-color="white" />
+        <span class="q-ml-sm text-h6">Shutdown System</span>
+      </q-card-section>
+
+      <q-card-section>
+        <div class="text-body1">Are you sure you want to shutdown the system?</div>
+        <div class="text-body2 text-grey-6 q-mt-sm">
+          This will turn off the device completely. You will need physical access to turn it back on.
+        </div>
+      </q-card-section>
+
+      <q-card-actions align="right">
+        <q-btn flat label="Cancel" color="grey-7" @click="showShutdownConfirm = false" />
+        <q-btn
+            flat
+            label="Shutdown"
+            color="negative"
+            @click="confirmShutdown"
+            :loading="systemActionLoading"
+        />
+      </q-card-actions>
+    </q-card>
+  </q-dialog>
 
   <!-- Update Confirmation Modal -->
   <Teleport to="body">

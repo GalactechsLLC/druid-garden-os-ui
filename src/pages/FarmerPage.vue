@@ -294,23 +294,61 @@ function getTotalPlotSpace() {
 const showPoolLoginDialog = ref(false);
 const gettingPoolLogin = ref(false);
 const poolLoginUrl = ref<string>('');
+const selectedLauncherId = ref<string>('');
+const loadingConfig = ref(false);
 
-// Add this computed property to check if farmer has launcher_id
 const hasLauncherId = computed(() => {
+  if (!farmerStore.farmer?.config?.farmer_info) {
+    return false;
+  }
   return farmerStore.farmer.config.farmer_info.some(info =>
       info.launcher_id && info.launcher_id.trim() !== ''
   );
 });
 
+const availableLauncherIds = computed(() => {
+  if (!farmerStore.farmer?.config?.farmer_info) {
+    return [];
+  }
+  return farmerStore.farmer.config.farmer_info
+      .filter(info => info.launcher_id && info.launcher_id.trim() !== '')
+      .map(info => ({
+        label: info.launcher_id,
+        value: info.launcher_id
+      }));
+});
+
+const hasMultipleLauncherIds = computed(() => {
+  return availableLauncherIds.value.length > 1;
+});
+
 // Updated methods
-const handlePoolLoginClick = () => {
+const handlePoolLoginClick = async () => {
   showPoolLoginDialog.value = true;
   poolLoginUrl.value = '';
+  loadingConfig.value = true;
+
+  try {
+    // Force reload the farmer config from settings
+    await farmerStore.loadFarmerConfigFromSettings();
+  } catch (error) {
+    console.error('Failed to load farmer config:', error);
+  } finally {
+    loadingConfig.value = false;
+  }
+
+  // Set default launcher ID after config is loaded
+  if (availableLauncherIds.value.length === 1) {
+    selectedLauncherId.value = availableLauncherIds.value[0].value;
+  } else {
+    selectedLauncherId.value = '';
+  }
 };
 
 const closePoolLoginDialog = () => {
   showPoolLoginDialog.value = false;
   poolLoginUrl.value = '';
+  selectedLauncherId.value = '';
 };
 
 const openFarmerConfigFromPool = () => {
@@ -323,7 +361,9 @@ const handleGetPoolLogin = async () => {
   gettingPoolLogin.value = true;
 
   try {
-    poolLoginUrl.value = await farmerStore.getPoolLoginUrl();
+    // Use selected launcher ID, or undefined if none selected
+    const launcherId = selectedLauncherId.value || undefined;
+    poolLoginUrl.value = await farmerStore.getPoolLoginUrl(launcherId);
     notificationStore.success('Pool login URL generated successfully');
   } catch (error) {
     console.error('Failed to get pool login URL:', error);
@@ -333,12 +373,30 @@ const handleGetPoolLogin = async () => {
   }
 };
 
-const copyPoolLoginUrl = async () => {
+const copyPoolLoginUrl = () => {
   try {
-    await navigator.clipboard.writeText(poolLoginUrl.value);
-    notificationStore.success('Pool login URL copied to clipboard');
+    // For HTTP environments, we'll auto-select the text for easy manual copying
+    const textarea = document.querySelector('textarea[readonly]') as HTMLTextAreaElement;
+    if (textarea && textarea.value === poolLoginUrl.value) {
+      textarea.select();
+      textarea.setSelectionRange(0, 99999); // For mobile devices
+
+      try {
+        const successful = document.execCommand('copy');
+        if (successful) {
+          notificationStore.success('Pool login URL copied to clipboard');
+          return;
+        }
+      } catch (e) {
+      }
+
+      notificationStore.info('URL selected - press Ctrl+C (or Cmd+C on Mac) to copy');
+    } else {
+      window.prompt('Copy this URL:', poolLoginUrl.value);
+    }
   } catch (error) {
-    notificationStore.error('Failed to copy URL to clipboard');
+    console.error('Copy failed:', error);
+    window.prompt('Copy this URL:', poolLoginUrl.value);
   }
 };
 
@@ -355,6 +413,13 @@ onMounted(async () => {
 
   await farmerStore.checkFarmerStatus();
   await farmerStore.updateConfigTestResult();
+
+  await farmerStore.loadFarmerConfigFromSettings();
+
+  if (farmerStore.isRunning) {
+    await farmerStore.getFarmerState();
+  }
+
   await diskStore.fetchDisks();
 
   if (farmerStore.isRunning) {
@@ -744,6 +809,38 @@ onUnmounted(() => {
           Generate a login URL for your farming pool dashboard.
         </div>
 
+        <!-- Launcher ID Selection (if multiple) -->
+        <div v-if="hasMultipleLauncherIds" class="q-mb-md">
+          <q-select
+              v-model="selectedLauncherId"
+              :options="availableLauncherIds"
+              label="Select Launcher ID"
+              outlined
+              dense
+              emit-value
+              map-options
+          >
+            <template v-slot:no-option>
+              <q-item>
+                <q-item-section class="text-grey">
+                  No launcher IDs found
+                </q-item-section>
+              </q-item>
+            </template>
+          </q-select>
+        </div>
+
+        <!-- Show current launcher ID if only one -->
+        <div v-else-if="availableLauncherIds.length === 1" class="q-mb-md">
+          <q-input
+              :model-value="availableLauncherIds[0].value"
+              label="Launcher ID"
+              readonly
+              outlined
+              dense
+          />
+        </div>
+
         <div class="q-mb-md">
           <q-btn
               color="primary"
@@ -751,6 +848,7 @@ onUnmounted(() => {
               icon="link"
               @click="handleGetPoolLogin"
               :loading="gettingPoolLogin"
+              :disable="hasMultipleLauncherIds && !selectedLauncherId"
               class="full-width"
           />
         </div>
