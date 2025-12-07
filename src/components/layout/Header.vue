@@ -27,12 +27,24 @@ const isLoggedIn = computed(() => userStore.isAuthenticated);
 const isDarkMode = computed(() => themeStore.isDarkMode);
 
 const hasNonSystemDisks = computed(() => {
-  return diskStore.disks.some(disk =>
-      disk.partitions?.some(partition => {
-        const mountPath = partition.mount_path || partition.mountpoint;
-        return mountPath && !['/home', '/boot', '/', '/var'].includes(mountPath);
-      })
-  );
+  if (!Array.isArray(diskStore.disks)) {
+    return false;
+  }
+
+  return diskStore.disks.some(disk => {
+    if (!disk || !Array.isArray(disk.partitions)) {
+      return false;
+    }
+
+    return disk.partitions.some(partition => {
+      if (!partition || !partition.mount_path) {
+        return false;
+      }
+
+      const mountPath = partition.mount_path;
+      return mountPath && !['/home', '/boot', '/', '/var'].includes(mountPath);
+    });
+  });
 });
 
 const goToDeviceSettings = () => {

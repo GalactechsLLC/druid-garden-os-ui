@@ -2,6 +2,10 @@ import { defineStore } from 'pinia';
 import { get, post, del } from '@/utils/api';
 import type {ConfigEntry} from "@/types/settings.ts";
 
+/**
+ * Configuration management store handling system settings, drive labels, and LED board configuration
+ * Provides JSON validation, default config creation, and specialized accessors for hardware settings
+ */
 export const useConfigStore = defineStore('config', {
     state: () => ({
         configs: [] as ConfigEntry[],
@@ -11,6 +15,9 @@ export const useConfigStore = defineStore('config', {
     }),
 
     getters: {
+        /**
+         * Group configurations by plugin for organized display
+         */
         groupedConfigs: (state) => {
             const result: Record<string, ConfigEntry[]> = {};
 
@@ -38,7 +45,9 @@ export const useConfigStore = defineStore('config', {
             return tabs.sort();
         },
 
-        // Get labeled drives as a parsed object
+        /**
+         * Parse labeled drives configuration as object with error handling
+         */
         labeledDrives: (state) => {
             const labeledDrivesConfig = state.configs.find(c => c.key === 'labeled_drives');
             if (!labeledDrivesConfig || !labeledDrivesConfig.value) {
@@ -48,45 +57,35 @@ export const useConfigStore = defineStore('config', {
             try {
                 return JSON.parse(labeledDrivesConfig.value) as Record<string, string>;
             } catch {
-                console.error('Failed to parse labeled_drives config');
                 return {};
             }
         }
     },
 
     actions: {
+        /**
+         * Load configurations from API with fallback to defaults
+         * Ensures required system configurations exist
+         */
         async fetchConfigs() {
             this.loading = true;
             this.error = null;
 
             try {
-                console.log("Fetching configs from API");
                 const data = await get('config', {
                     errorMessage: 'Failed to load settings',
                     showErrorNotification: false
                 });
 
                 if (Array.isArray(data) && data.length > 0) {
-                    console.log(`Loaded ${data.length} configs from API`);
-
-                    const bookmarkConfig = data.find(c => c.key === 'bookmarks');
-                    if (bookmarkConfig) {
-                        console.log("Found bookmark config in API response:",
-                            bookmarkConfig.key, bookmarkConfig.value?.substring(0, 100));
-                    } else {
-                        console.log("No bookmark config found in API response");
-                    }
-
                     this.configs = data;
                 } else {
-                    console.log("No configs returned from API, using defaults");
                     this.configs = this.getDefaultConfigs();
                 }
 
                 // Ensure required configs exist
                 await this.ensureRequiredConfigs();
             } catch (error) {
-                console.error('Error fetching configs:', error);
                 this.error = 'Failed to load settings';
 
                 if (this.configs.length === 0) {
@@ -99,6 +98,9 @@ export const useConfigStore = defineStore('config', {
             return this.configs;
         },
 
+        /**
+         * Generate default system configurations
+         */
         getDefaultConfigs(): ConfigEntry[] {
             const timestamp = "0";
 
@@ -154,11 +156,13 @@ export const useConfigStore = defineStore('config', {
             ];
         },
 
+        /**
+         * Create missing required system configurations
+         */
         async ensureRequiredConfigs() {
             // Ensure labeled_drives config exists
             const existingLabeledConfig = this.configs.find(c => c.key === 'labeled_drives');
             if (!existingLabeledConfig) {
-                console.log('Creating labeled_drives config');
                 await this.createConfig({
                     key: 'labeled_drives',
                     value: '{}',
@@ -173,7 +177,6 @@ export const useConfigStore = defineStore('config', {
             // Ensure LED board config exists
             const existingLEDConfig = this.configs.find(c => c.key === 'led_board_type');
             if (!existingLEDConfig) {
-                console.log('Creating led_board_type config');
                 await this.createConfig({
                     key: 'led_board_type',
                     value: 'rpi4',
@@ -186,6 +189,9 @@ export const useConfigStore = defineStore('config', {
             }
         },
 
+        /**
+         * Update configuration value with optimistic updates and rollback on error
+         */
         async updateConfig(key: string, value: string | number | boolean, last_value?: string) {
             this.loading = true;
             this.error = null;
@@ -210,6 +216,7 @@ export const useConfigStore = defineStore('config', {
                     modified: "0"
                 };
 
+                // Optimistic update
                 this.configs[index] = {
                     ...config,
                     value: String(value),
@@ -227,13 +234,11 @@ export const useConfigStore = defineStore('config', {
                 }
 
             } catch (error) {
-                console.error('Error updating config:', error);
                 this.error = 'Failed to update setting';
 
-                // On error, restore original value
+                // Rollback on error
                 const index = this.configs.findIndex(c => c.key === key);
                 if (index >= 0) {
-                    // Find the original config again in case the index changed
                     const originalConfig = this.configs[index];
                     this.configs[index] = {
                         ...originalConfig,
@@ -247,6 +252,9 @@ export const useConfigStore = defineStore('config', {
             }
         },
 
+        /**
+         * Create new configuration with fallback to local storage on API failure
+         */
         async createConfig(configData: Partial<ConfigEntry>) {
             this.loading = true;
             this.error = null;
@@ -255,8 +263,6 @@ export const useConfigStore = defineStore('config', {
                 if (!configData.key) {
                     throw new Error('Config key is required');
                 }
-
-                console.log(`Creating config "${configData.key}"`, configData);
 
                 const newConfig: ConfigEntry = {
                     key: configData.key,
@@ -272,7 +278,6 @@ export const useConfigStore = defineStore('config', {
                 };
 
                 try {
-                    console.log(`Sending API request to create config ${configData.key}`, newConfig);
                     const response = await post(`config/${configData.key}`, newConfig, {
                         successMessage: `Setting "${configData.key}" created successfully`,
                         errorMessage: 'Failed to create setting',
@@ -280,7 +285,6 @@ export const useConfigStore = defineStore('config', {
                     });
 
                     if (response && typeof response === 'object') {
-                        console.log(`Config "${configData.key}" created successfully:`, response);
                         const existingIndex = this.configs.findIndex(c => c.key === configData.key);
                         if (existingIndex >= 0) {
                             this.configs[existingIndex] = response;
@@ -289,7 +293,7 @@ export const useConfigStore = defineStore('config', {
                         }
                         return response;
                     } else {
-                        console.warn(`API returned non-object response for config "${configData.key}"`, response);
+                        // Fallback to local storage
                         const existingIndex = this.configs.findIndex(c => c.key === configData.key);
                         if (existingIndex >= 0) {
                             this.configs[existingIndex] = newConfig;
@@ -299,8 +303,7 @@ export const useConfigStore = defineStore('config', {
                         return newConfig;
                     }
                 } catch (apiError) {
-                    console.error(`API error creating config "${configData.key}":`, apiError);
-                    console.log(`Adding config "${configData.key}" locally despite API error`);
+                    // Store locally despite API error
                     const existingIndex = this.configs.findIndex(c => c.key === configData.key);
                     if (existingIndex >= 0) {
                         this.configs[existingIndex] = newConfig;
@@ -310,7 +313,6 @@ export const useConfigStore = defineStore('config', {
                     return newConfig;
                 }
             } catch (error) {
-                console.error('Error in createConfig method:', error);
                 this.error = 'Failed to create setting';
                 return null;
             } finally {
@@ -331,9 +333,7 @@ export const useConfigStore = defineStore('config', {
 
                 this.configs = this.configs.filter(c => c.key !== key);
             } catch (error) {
-                console.error('Error deleting config:', error);
                 this.error = 'Failed to delete setting';
-
                 this.configs = this.configs.filter(c => c.key !== key);
             } finally {
                 this.loading = false;
@@ -353,6 +353,9 @@ export const useConfigStore = defineStore('config', {
             this.jsonErrors = { ...this.jsonErrors, [key]: error };
         },
 
+        /**
+         * Validate and update JSON configuration with error tracking
+         */
         async checkAndUpdateJSON(key: string, value: string, last_value?: string) {
             try {
                 JSON.parse(value);
@@ -364,6 +367,9 @@ export const useConfigStore = defineStore('config', {
             }
         },
 
+        /**
+         * Format JSON with proper indentation and validation
+         */
         async formatJSON(key: string, value: string, last_value?: string) {
             try {
                 const parsed = JSON.parse(value);
@@ -376,17 +382,18 @@ export const useConfigStore = defineStore('config', {
             }
         },
 
-        // Methods for managing drive labels
         getDriveLabel(uuid: string): string | null {
             const labeledDrives = this.labeledDrives;
             return labeledDrives[uuid] || null;
         },
 
+        /**
+         * Set or remove drive label by UUID
+         */
         async setDriveLabel(uuid: string, label: string) {
             const labeledDrives = { ...this.labeledDrives };
 
             if (label.trim() === '') {
-                // Remove label if empty
                 delete labeledDrives[uuid];
             } else {
                 labeledDrives[uuid] = label.trim();
@@ -404,23 +411,17 @@ export const useConfigStore = defineStore('config', {
             await this.updateConfig('labeled_drives', newValue);
         },
 
-        // Methods for managing LED board selection
         getLEDBoardType(): string {
             const ledBoardConfig = this.configs.find(c => c.key === 'led_board_type');
             return ledBoardConfig?.value || 'rpi4';
         },
 
         async setLEDBoardType(boardType: string) {
-            console.log(`Setting LED board type to: ${boardType}`);
-            console.log(`Current LED board type: ${this.getLEDBoardType()}`);
-
             const currentValue = this.getLEDBoardType();
 
             try {
                 await this.updateConfig('led_board_type', boardType, currentValue);
-                console.log(`LED board type successfully updated to: ${this.getLEDBoardType()}`);
             } catch (error) {
-                console.error('Failed to update LED board type:', error);
                 throw error;
             }
         }

@@ -1,5 +1,4 @@
 <script setup lang="ts">
-// Replace your Vue component's script section with this:
 import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import { useLEDStore } from '@/stores/ledStore';
 import { useNotificationStore } from '@/stores/notificationStore';

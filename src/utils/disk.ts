@@ -1,23 +1,10 @@
-// Updated disk utility functions
-import type { DiskInfo, Partition } from "@/types/disk";
+import type { DiskInfo } from "@/types/disk";
 
-// Format config label for display
-export function formatConfigLabel(key: string): string {
-    // Convert snake_case or camelCase to Title Case with spaces
-    return key
-        .replace(/([A-Z])/g, ' $1') // camelCase to space-separated
-        .replace(/_/g, ' ') // snake_case to space-separated
-        .replace(/^./, str => str.toUpperCase()) // Capitalize first letter
-        .trim();
-}
-
-// Format JSON for editor
-export function formatJSONEditor(jsonString: string): string {
-    const parsed = JSON.parse(jsonString);
-    return JSON.stringify(parsed, null, 2);
-}
-
-// Format file size in human-readable format
+/**
+ * Format a byte size into a human-readable string with appropriate units
+ * @param size - Size in bytes
+ * @returns Formatted size string (e.g., "1.50 GB") or "Unknown" if size is invalid
+ */
 export function formatSize(size?: number): string {
     if (size === undefined || size === null || isNaN(size)) {
         return "Unknown";
@@ -35,28 +22,28 @@ export function formatSize(size?: number): string {
     return `${formattedSize.toFixed(2)} ${units[index]}`;
 }
 
-// For backward compatibility
-export function formatFileSize(size?: number): string {
-    return formatSize(size);
-}
-
-// Get disk type description
+/**
+ * Get a human-readable description for a disk device
+ * @param disk - Disk information object
+ * @returns Formatted disk description including vendor, model, and type
+ */
 export function getDiskTypeDescription(disk: DiskInfo): string {
-    // Handle both Disk and DiskInfo types
     if ('model' in disk) {
-        // It's a Disk object
         const model = disk.model || 'Unknown Device';
         const vendor = disk.vendor ? `${disk.vendor} ` : '';
         const type = disk.disk_type || 'Storage Device';
         return `${vendor}${model} (${type})`;
     } else {
-        // It's a DiskInfo object
         const name = disk.name || 'Unknown Device';
         return `${name} (Storage Device)`;
     }
 }
 
-// Get filesystem description
+/**
+ * Get a standardized filesystem type description
+ * @param fstype - Raw filesystem type string
+ * @returns Standardized filesystem name (e.g., "NTFS", "ext4") or "Unknown"
+ */
 export function getFilesystemDescription(fstype: string | null | undefined): string {
     if (!fstype) return "Unknown";
 
@@ -80,16 +67,18 @@ export function getFilesystemDescription(fstype: string | null | undefined): str
     return fstype.toUpperCase();
 }
 
-// Check if partition is mountable
-export function isMountablePartition(partition: Partial<Partition>): boolean {
-    // A partition is mountable if it has a file system and is not already mounted
-    return !!(
-        (partition.file_system || partition.fstype) &&
-        !(partition.mount_path || partition.mountpoint)
-    );
-}
-
-// Build mount options string
+/**
+ * Build a mount options string based on various mount parameters
+ * @param options - Base mount options string
+ * @param readOnly - Whether to mount as read-only
+ * @param noexec - Whether to disable execution of binaries
+ * @param sync - Whether to use synchronous I/O
+ * @param setUid - Whether to set UID/GID options
+ * @param uid - User ID for ownership
+ * @param gid - Group ID for ownership
+ * @param partition - Partition information object with optional filesystem fields
+ * @returns Complete mount options string
+ */
 export function buildMountOptionsString(
     options: string,
     readOnly: boolean,
@@ -100,10 +89,8 @@ export function buildMountOptionsString(
     gid: number,
     partition: { file_system?: string | null; fstype?: string | null } | null
 ): string {
-    // Start with the provided options or defaults
     let result = options || 'defaults';
 
-    // Add standard flags
     if (readOnly) {
         result = addMountOption(result, 'ro');
     }
@@ -114,7 +101,6 @@ export function buildMountOptionsString(
         result = addMountOption(result, 'sync');
     }
 
-    // Add uid/gid options for appropriate filesystems
     if (setUid && partition) {
         const fs = (partition.file_system || partition.fstype || '').toLowerCase();
         if (fs.includes('fat') || fs.includes('ntfs') || fs.includes('exfat')) {
@@ -126,7 +112,12 @@ export function buildMountOptionsString(
     return result;
 }
 
-// Helper for adding mount options
+/**
+ * Add a new option to an existing mount options string
+ * @param options - Existing mount options string
+ * @param newOption - New option to add
+ * @returns Updated mount options string
+ */
 function addMountOption(options: string, newOption: string): string {
     if (options === 'defaults') {
         return newOption;
@@ -134,28 +125,13 @@ function addMountOption(options: string, newOption: string): string {
     return `${options},${newOption}`;
 }
 
-// Check if filesystem is Windows-native
+/**
+ * Check if a filesystem type is native to Windows
+ * @param fstype - Filesystem type string
+ * @returns True if the filesystem is Windows-native (NTFS, FAT variants, exFAT)
+ */
 export function isWindowsNativeFs(fstype: string | null | undefined): boolean {
     if (!fstype) return false;
     const fs = fstype.toLowerCase();
     return fs.includes('ntfs') || fs.includes('fat') || fs.includes('exfat');
-}
-
-// Get suggested mount path
-export function getSuggestedMountPath(partition: Partition): string {
-    if (partition.uuid) {
-        return `/mnt/${partition.uuid}`;
-    } else {
-        const deviceName = partition.device.replace('/dev/', '');
-        return `/mnt/${deviceName}`;
-    }
-}
-
-// Get WiFi signal icon based on signal strength
-export function getWifiSignalIcon(signal: number): string {
-    if (signal >= 80) return 'wifi';
-    if (signal >= 60) return 'network_wifi_3_bar';
-    if (signal >= 40) return 'network_wifi_2_bar';
-    if (signal >= 20) return 'network_wifi_1_bar';
-    return 'signal_wifi_0_bar';
 }

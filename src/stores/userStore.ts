@@ -1,4 +1,3 @@
-// src/stores/userStore.ts
 import { defineStore } from 'pinia';
 import { useNotificationStore } from '@/stores/notificationStore';
 import {
@@ -16,6 +15,9 @@ import {
     setAuthToken,
 } from '@/utils/auth';
 
+/**
+ * User authentication and profile management store
+ */
 export const useUserStore = defineStore('user', {
     state: () => ({
         isLoggedIn: false,
@@ -34,14 +36,17 @@ export const useUserStore = defineStore('user', {
     },
 
     actions: {
+        /**
+         * Authenticate user with username and password
+         * Performs login request, retrieves JWT token, and sets up user session
+         */
         async login(username: string, password: string): Promise<boolean> {
             const notificationStore = useNotificationStore();
             this.loading = true;
             this.error = null;
 
             try {
-                console.log('Attempting login with:', { username });
-
+                // Send login credentials
                 try {
                     await post('auth/login',
                         { username, password } as LoginRequest,
@@ -51,12 +56,11 @@ export const useUserStore = defineStore('user', {
                             silent: true
                         }
                     );
-                    console.log('Login request successful');
                 } catch (loginErr) {
-                    console.error('Login request failed:', loginErr);
                     throw new Error('Authentication failed');
                 }
 
+                // Retrieve and store JWT token
                 try {
                     const token = await get(`auth/jwt`, {
                         showSuccessNotification: false,
@@ -69,13 +73,12 @@ export const useUserStore = defineStore('user', {
                     }
 
                     setAuthToken(token);
-
                     localStorage.setItem('username', username);
                 } catch (tokenErr) {
-                    console.error('Failed to get token:', tokenErr);
                     throw new Error('Authentication succeeded but failed to retrieve user token');
                 }
 
+                // Create user object and set login state
                 this.user = {
                     sub: username,
                     eml: username,
@@ -83,17 +86,17 @@ export const useUserStore = defineStore('user', {
                 };
 
                 this.isLoggedIn = true;
+
+                // Check if password update is required (non-blocking)
                 try {
                     await this.checkPasswordUpdateRequired(username);
                 } catch (err) {
-                    console.warn('Failed to check password update requirement');
                     this.passwordUpdateRequired = false;
                 }
 
                 notificationStore.notify('positive', 'Login successful', {});
                 return true;
             } catch (err: any) {
-                console.error('Login error:', err);
                 this.error = err.message || 'Authentication failed';
                 notificationStore.notify('negative', this.error || '',{});
                 return false;
@@ -102,6 +105,9 @@ export const useUserStore = defineStore('user', {
             }
         },
 
+        /**
+         * Register a new user account
+         */
         async register(username: string, password: string): Promise<boolean> {
             const notificationStore = useNotificationStore();
             this.loading = true;
@@ -128,6 +134,9 @@ export const useUserStore = defineStore('user', {
             }
         },
 
+        /**
+         * Update user password with old password verification
+         */
         async updatePassword(oldPassword: string, newPassword: string): Promise<boolean> {
             const notificationStore = useNotificationStore();
             this.loading = true;
@@ -159,6 +168,10 @@ export const useUserStore = defineStore('user', {
             }
         },
 
+        /**
+         * Check if user needs to update their password
+         * Handles various response formats (boolean, string, number)
+         */
         async checkPasswordUpdateRequired(username: string): Promise<boolean> {
             this.error = null;
 
@@ -176,13 +189,16 @@ export const useUserStore = defineStore('user', {
                     return false;
                 }
             } catch (err: any) {
-                console.error('Failed to check password update requirement:', err);
                 this.error = err.message || 'Failed to check password status';
                 this.passwordUpdateRequired = false;
                 return false;
             }
         },
 
+        /**
+         * Restore user session from stored token and username
+         * Called on app initialization to maintain login state
+         */
         refreshUserFromToken(): boolean {
             const token = getAuthToken();
             const username = localStorage.getItem('username');
@@ -204,15 +220,18 @@ export const useUserStore = defineStore('user', {
 
             this.isLoggedIn = true;
 
+            // Check password status asynchronously (non-blocking)
             this.checkPasswordUpdateRequired(username)
                 .catch(err => {
-                    console.warn('Failed to check password update status:', err);
                     this.passwordUpdateRequired = false;
                 });
 
             return true;
         },
 
+        /**
+         * Clear user session and redirect to login
+         */
         logout(): void {
             const notificationStore = useNotificationStore();
             localStorage.removeItem('token');
@@ -226,6 +245,9 @@ export const useUserStore = defineStore('user', {
             notificationStore.notify('info', 'You have been logged out', {});
         },
 
+        /**
+         * Initialize store by attempting to restore user session
+         */
         init(): void {
             this.refreshUserFromToken();
         }

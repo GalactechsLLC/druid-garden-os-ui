@@ -23,8 +23,14 @@ const farmerConfigRef = ref<any>(null);
 const lastValidPlotCount = ref(0);
 const lastValidPlotSpace = ref(0);
 const lastUpdated = ref<Date | null>(null)
-const loading = ref(true)
-const error = ref<string | null>(null)
+const showPoolLoginDialog = ref(false);
+const gettingPoolLogin = ref(false);
+const poolLoginUrl = ref<string>('');
+const selectedLauncherId = ref<string>('');
+const loadingConfig = ref(false);
+
+const poolLoginUrls = ref<{ launcherId: string; url: string }[]>([]);
+
 
 const needsConfigSetup = computed(() => {
   if (farmerStore.isRunning) return false;
@@ -34,7 +40,7 @@ const needsConfigSetup = computed(() => {
 const hasNonSystemDisks = computed(() => {
   return diskStore.disks.some(disk =>
       disk.partitions?.some(partition => {
-        const mountPath = partition.mount_path || partition.mountpoint;
+        const mountPath = partition.mount_path;
         return mountPath && !['/home', '/boot', '/', '/var'].includes(mountPath);
       })
   );
@@ -69,11 +75,6 @@ const formattedSpace = computed(() => {
   return formatBytes(space.value, 3)
 })
 
-const dataIsReady = computed(() => {
-  return farmerChartStore.historyData &&
-      farmerChartStore.historyData.farmer_records.length > 0;
-});
-
 const goToDeviceSettings = () => {
   router.push('/settings?tab=devices');
 };
@@ -82,16 +83,10 @@ const openFarmerConfigModal = () => {
   farmerConfigRef.value?.open?.();
 };
 
-const onImportSuccess = (message: string): void => {
-  console.log('Import successful:', message);
-};
-
-const onImportError = (error: string): void => {
-  console.error('Import error:', error);
-};
-
+/**
+ * Checks for mounted disk, starts farmer, attempts to connect to log service
+ */
 async function startFarmerHandler() {
-  // Check if disk is mounted before starting
   if (!hasNonSystemDisks.value) {
     notificationStore.warning('Please mount a disk before starting the farmer');
     return;
@@ -128,27 +123,20 @@ async function startFarmerHandler() {
 
           if (farmerStore.isRunning) {
             if (logService.connectionStatus.value !== 'connected') {
-              console.log(`Attempt ${attempts}: WebSocket not connected, trying to connect...`);
               logService.connect(farmerChartStore);
               wsConnected = false;
             } else {
               wsConnected = true;
-              console.log(`WebSocket connected on attempt ${attempts}`);
             }
 
             if (!fetchSuccess) {
-              await fetchAllData();
+              await farmerStore.fetchAllData();
               fetchSuccess = true;
-              console.log(`Farmer state fetched on attempt ${attempts}`);
             }
 
             if (fetchSuccess && wsConnected) {
               notificationStore.success('Farmer started and connected successfully');
-
-              // Start chart data collection
-              console.log('🚀 Starting chart data collection from start handler');
               farmerChartStore.startChartCollection();
-
               break;
             }
           }
@@ -225,23 +213,6 @@ async function fetchFarmerState() {
   }
 }
 
-async function fetchAllData() {
-  try {
-    loading.value = true
-
-    await Promise.all([
-      fetchFarmerState(),
-    ])
-
-    lastUpdated.value = new Date()
-  } catch (err) {
-    error.value = err instanceof Error ? err.message : 'Failed to fetch data'
-    console.error('Error fetching all data:', err)
-  } finally {
-    loading.value = false
-  }
-}
-
 function getTotalPlotCount() {
   const ogCount = farmerStore.farmer.plot_counts.og_plot_count || 0;
   const nftCount = farmerStore.farmer.plot_counts.nft_plot_count || 0;
@@ -273,6 +244,7 @@ function getTotalPlotCount() {
 
 function getTotalPlotSpace() {
   const plotSpaceFromApi = farmerStore.farmer.plot_counts.total_plot_space;
+  console.log('FarmerPage.vue: Inside getTotalPlotSpace - plotSpaceFromApi:', plotSpaceFromApi);
 
   if (plotSpaceFromApi && plotSpaceFromApi > 0) {
     lastValidPlotSpace.value = plotSpaceFromApi;
@@ -291,11 +263,9 @@ function getTotalPlotSpace() {
   return "0 Bytes";
 }
 
-const showPoolLoginDialog = ref(false);
-const gettingPoolLogin = ref(false);
-const poolLoginUrl = ref<string>('');
-const selectedLauncherId = ref<string>('');
-const loadingConfig = ref(false);
+/**'
+ * Pool Login Link
+ */
 
 const hasLauncherId = computed(() => {
   if (!farmerStore.farmer?.config?.farmer_info) {
@@ -322,98 +292,106 @@ const hasMultipleLauncherIds = computed(() => {
   return availableLauncherIds.value.length > 1;
 });
 
-// Updated methods
 const handlePoolLoginClick = async () => {
   showPoolLoginDialog.value = true;
   poolLoginUrl.value = '';
+  poolLoginUrls.value = [];
   loadingConfig.value = true;
 
   try {
-    // Force reload the farmer config from settings
     await farmerStore.loadFarmerConfigFromSettings();
   } catch (error) {
     console.error('Failed to load farmer config:', error);
   } finally {
     loadingConfig.value = false;
   }
-
-  // Set default launcher ID after config is loaded
-  if (availableLauncherIds.value.length === 1) {
-    selectedLauncherId.value = availableLauncherIds.value[0].value;
-  } else {
-    selectedLauncherId.value = '';
-  }
 };
 
 const closePoolLoginDialog = () => {
   showPoolLoginDialog.value = false;
   poolLoginUrl.value = '';
-  selectedLauncherId.value = '';
+  poolLoginUrls.value = [];
 };
 
 const openFarmerConfigFromPool = () => {
-  // Close pool dialog and open config
   showPoolLoginDialog.value = false;
   openFarmerConfigModal();
 };
 
 const handleGetPoolLogin = async () => {
   gettingPoolLogin.value = true;
+  poolLoginUrls.value = [];
 
   try {
-    // Use selected launcher ID, or undefined if none selected
-    const launcherId = selectedLauncherId.value || undefined;
-    poolLoginUrl.value = await farmerStore.getPoolLoginUrl(launcherId);
-    notificationStore.success('Pool login URL generated successfully');
+    const ids = availableLauncherIds.value.map(o => o.value);
+
+    if (ids.length === 0) {
+      notificationStore.warning('No launcher IDs available. Configure a pool in your farmer settings first.');
+      return;
+    }
+
+    const results = await Promise.all(
+        ids.map(async (launcherId) => {
+          try {
+            const url = await farmerStore.getPoolLoginUrl(launcherId);
+            if (!url) {
+              throw new Error('Empty URL returned');
+            }
+            return { launcherId, url };
+          } catch (err) {
+            console.error(`Failed to get pool login URL for ${launcherId}:`, err);
+            notificationStore.error(`Failed to generate pool login URL for launcher ID ${launcherId}`);
+            return null;
+          }
+        })
+    );
+
+    poolLoginUrls.value = results.filter(
+        (entry): entry is { launcherId: string; url: string } => !!entry
+    );
+
+    if (poolLoginUrls.value.length > 0) {
+      notificationStore.success('Pool login URLs generated successfully');
+    } else {
+      notificationStore.warning('No pool login URLs could be generated. Please check your configuration.');
+    }
   } catch (error) {
-    console.error('Failed to get pool login URL:', error);
-    // Error notification is already handled in the store
+    console.error('Failed to get pool login URLs:', error);
+    notificationStore.error('Failed to generate pool login URLs');
   } finally {
     gettingPoolLogin.value = false;
   }
 };
 
-const copyPoolLoginUrl = () => {
+const copyPoolLoginUrl = async (url: string) => {
+  if (!url) {
+    notificationStore.info('No URL to copy.');
+    return;
+  }
+
   try {
-    // For HTTP environments, we'll auto-select the text for easy manual copying
-    const textarea = document.querySelector('textarea[readonly]') as HTMLTextAreaElement;
-    if (textarea && textarea.value === poolLoginUrl.value) {
-      textarea.select();
-      textarea.setSelectionRange(0, 99999); // For mobile devices
-
-      try {
-        const successful = document.execCommand('copy');
-        if (successful) {
-          notificationStore.success('Pool login URL copied to clipboard');
-          return;
-        }
-      } catch (e) {
-      }
-
-      notificationStore.info('URL selected - press Ctrl+C (or Cmd+C on Mac) to copy');
-    } else {
-      window.prompt('Copy this URL:', poolLoginUrl.value);
-    }
+    await navigator.clipboard.writeText(url);
+    notificationStore.success('Pool login URL copied to clipboard');
   } catch (error) {
     console.error('Copy failed:', error);
-    window.prompt('Copy this URL:', poolLoginUrl.value);
+    notificationStore.error('Failed to copy pool login URL to clipboard');
   }
 };
 
-const openPoolLoginUrl = () => {
-  if (poolLoginUrl.value) {
-    window.open(poolLoginUrl.value, '_blank');
+const openPoolLoginUrl = (url: string) => {
+  if (!url) {
+    notificationStore.info('No URL to open.');
+    return;
   }
+  window.open(url, '_blank');
 };
+
 
 let refreshInterval: number | null = null;
 
 onMounted(async () => {
-  console.log('📊 Farmer page mounted');
-
   await farmerStore.checkFarmerStatus();
   await farmerStore.updateConfigTestResult();
-
   await farmerStore.loadFarmerConfigFromSettings();
 
   if (farmerStore.isRunning) {
@@ -423,20 +401,17 @@ onMounted(async () => {
   await diskStore.fetchDisks();
 
   if (farmerStore.isRunning) {
-    console.log('✅ Farmer is running on page load - starting chart collection');
-    await fetchAllData();
+    await farmerStore.fetchAllData();
     farmerChartStore.startChartCollection();
-  } else {
-    console.log('❌ Farmer not running on page load');
   }
 });
 
 watch(() => farmerStore.isRunning, async (isRunning, wasRunning) => {
-  console.log(`📊 Farmer state changed: ${wasRunning} → ${isRunning}`);
+  console.log(`Farmer state changed: ${wasRunning} → ${isRunning}`);
 
   if (isRunning && !wasRunning) {
-    console.log('✅ Farmer started - starting chart collection and state refresh');
-    await fetchAllData();
+    console.log('Farmer started - starting chart collection and state refresh');
+    await farmerStore.fetchAllData();
     farmerChartStore.startChartCollection();
 
     if (!refreshInterval) {
@@ -448,7 +423,7 @@ watch(() => farmerStore.isRunning, async (isRunning, wasRunning) => {
       }, 5000); // Refresh every 5 seconds
     }
   } else if (!isRunning && wasRunning) {
-    console.log('❌ Farmer stopped - stopping chart collection and state refresh');
+    console.log('Farmer stopped - stopping chart collection and state refresh');
     farmerChartStore.stopChartCollection();
 
     // Stop the refresh interval
@@ -460,7 +435,7 @@ watch(() => farmerStore.isRunning, async (isRunning, wasRunning) => {
 }, { immediate: true });
 
 onUnmounted(() => {
-  console.log('📊 Farmer page unmounted');
+  console.log('Farmer page unmounted');
 
   if (refreshInterval) {
     clearInterval(refreshInterval);
@@ -773,11 +748,7 @@ onUnmounted(() => {
   </q-page>
 
   <!-- Farmer Config Popup -->
-  <FarmerConfig
-      ref="farmerConfigRef"
-      @import-success="onImportSuccess"
-      @import-error="onImportError"
-  />
+  <FarmerConfig ref="farmerConfigRef" />
   <!-- Pool Login Dialog -->
   <q-dialog v-model="showPoolLoginDialog" persistent>
     <q-card style="min-width: 400px; max-width: 600px;">
@@ -841,49 +812,55 @@ onUnmounted(() => {
           />
         </div>
 
-        <div class="q-mb-md">
-          <q-btn
-              color="primary"
-              label="Generate Login URL"
-              icon="link"
-              @click="handleGetPoolLogin"
-              :loading="gettingPoolLogin"
-              :disable="hasMultipleLauncherIds && !selectedLauncherId"
-              class="full-width"
-          />
-        </div>
+        <q-btn
+            color="primary"
+            label="Generate Login URLs"
+            icon="link"
+            @click="handleGetPoolLogin"
+            :loading="gettingPoolLogin"
+            :disable="availableLauncherIds.length === 0"
+            class="full-width"
+        />
 
-        <div v-if="poolLoginUrl" class="q-mt-md">
-          <q-input
-              v-model="poolLoginUrl"
-              label="Pool Login URL"
-              readonly
-              outlined
-              dense
-              type="textarea"
-              rows="3"
-          >
-            <template v-slot:append>
-              <div class="column q-gutter-xs">
-                <q-btn
-                    flat
-                    dense
-                    icon="content_copy"
-                    @click="copyPoolLoginUrl"
-                    title="Copy URL"
-                    size="sm"
-                />
-                <q-btn
-                    flat
-                    dense
-                    icon="open_in_new"
-                    @click="openPoolLoginUrl"
-                    title="Open in new tab"
-                    size="sm"
-                />
-              </div>
-            </template>
-          </q-input>
+        <div v-if="poolLoginUrls.length" class="q-mt-md">
+          <q-list bordered separator>
+            <q-item
+                v-for="entry in poolLoginUrls"
+                :key="entry.launcherId"
+                class="items-start"
+            >
+              <q-item-section>
+                <q-item-label caption>Launcher ID</q-item-label>
+                <q-item-label class="text-monospace">{{ entry.launcherId }}</q-item-label>
+
+                <q-item-label caption class="q-mt-xs">Pool Login URL</q-item-label>
+                <q-item-label class="text-monospace ellipsis">
+                  {{ entry.url }}
+                </q-item-label>
+              </q-item-section>
+
+              <q-item-section side top>
+                <div class="column q-gutter-xs">
+                  <q-btn
+                      flat
+                      dense
+                      icon="content_copy"
+                      @click="copyPoolLoginUrl(entry.url)"
+                      title="Copy URL"
+                      size="sm"
+                  />
+                  <q-btn
+                      flat
+                      dense
+                      icon="open_in_new"
+                      @click="openPoolLoginUrl(entry.url)"
+                      title="Open in new tab"
+                      size="sm"
+                  />
+                </div>
+              </q-item-section>
+            </q-item>
+          </q-list>
         </div>
       </q-card-section>
 

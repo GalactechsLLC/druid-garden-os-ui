@@ -2,14 +2,16 @@ import { useUserStore } from '@/stores/userStore';
 import type { User } from '@/types/user';
 
 /**
- * Get authentication token
+ * Get authentication token from localStorage
+ * @returns The stored authentication token or null if not found
  */
 export function getAuthToken(): string | null {
     return localStorage.getItem('token');
 }
 
 /**
- * Set authentication token
+ * Set or remove authentication token in localStorage
+ * @param token - The authentication token to store, or null to remove it
  */
 export function setAuthToken(token: string | null): void {
     if (token) {
@@ -20,70 +22,52 @@ export function setAuthToken(token: string | null): void {
 }
 
 /**
- * Get authentication headers for API requests
- */
-export function getAuthHeaders(): Record<string, string> {
-    const token = getAuthToken();
-    if (!token) return {};
-    return {
-        'Authorization': `Bearer ${token}`
-    };
-}
-
-/**
- * Check authentication status - just checks if token exists
+ * Check if user is authenticated by verifying token existence
+ * @returns True if authentication token exists, false otherwise
  */
 export function checkAuth(): boolean {
     return !!getAuthToken();
 }
 
 /**
- * Initialize authentication for the application
+ * Initialize authentication for the application by restoring user session
+ * @returns True if session was successfully restored, false if user needs to log in
  */
 export function initializeAuth(): boolean {
     const userStore = useUserStore();
 
-    // Check if token exists
     const token = getAuthToken();
     const username = localStorage.getItem('username');
 
     if (token && username) {
-        console.log('Found existing auth token and username');
-
-        // Create the user object directly without decoding the token
         const user: User = {
             sub: username,
             eml: username,
             rol: username.toLowerCase() === 'admin' ? 'Admin' : 'User'
         };
 
-        // Use the setter methods instead of $patch
         userStore.isLoggedIn = true;
         userStore.user = user;
 
-        console.log('Successfully restored user session');
         return true;
     } else {
-        console.log('No valid auth token found, user will need to log in');
         return false;
     }
 }
 
 /**
- * Setup authentication monitoring - just checks if token exists
+ * Setup periodic authentication monitoring to detect token removal
+ * @returns Cleanup function to stop the monitoring interval
  */
 export function setupAuthMonitoring(): () => void {
     const userStore = useUserStore();
 
-    // Set up periodic auth check
     const intervalId = setInterval(() => {
         if (userStore.isAuthenticated && !getAuthToken()) {
-            console.warn('Token missing during monitoring check');
             userStore.logout();
         }
-    }, 60000); // Check every minute
+    }, 60000);
 
-    // Return cleanup function
     return () => {
         clearInterval(intervalId);
     };

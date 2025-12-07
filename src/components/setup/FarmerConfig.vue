@@ -362,34 +362,66 @@
 
                   <div class="col-12">
                     <div class="text-h6 q-mt-md q-mb-sm">Recompute Settings</div>
+
                     <div class="row q-col-gutter-sm">
                       <div class="col-12 col-md-6">
                         <q-input
                             label="Recompute Host"
                             v-model="recomputeHost"
                             outlined
-                            hint=""
-                            placeholder=""
                             :disable="saving"
                         />
                       </div>
+
                       <div class="col-12 col-md-6">
                         <q-input
                             label="Recompute Port"
                             v-model.number="recomputePort"
                             type="number"
                             outlined
-                            hint=""
                             placeholder="0"
                             :disable="saving"
                         />
                       </div>
-                      <div class="col-12">
+
+                      <!-- LEFT SIDE TEXT -->
+                      <div class="col-12 col-md-6 q-mt-md">
+                        <div class="text-bold">
+                          Connect your farm to
+                          <a href="https://recompute.io" target="_blank">recompute.io</a>
+                        </div>
+
+                        <div class="q-mt-xs">
+                          Sign up and add your public farmer key to your account to get started.
+                        </div>
+
+                        <!-- COPYABLE KEY FIELD -->
+                        <q-input
+                            class="q-mt-sm"
+                            label="Public Farmer Key"
+                            v-model="publicFarmerKey"
+                            outlined
+                            readonly
+                            dense
+                            :disable="saving"
+                        >
+                          <template v-slot:append>
+                            <q-btn
+                                flat
+                                round
+                                icon="content_copy"
+                                @click="copyFarmerKey"
+                            />
+                          </template>
+                        </q-input>
+                      </div>
+
+                      <!-- BUTTON ON THE RIGHT -->
+                      <div class="col-12 col-md-6 q-mt-md flex items-start justify-end">
                         <q-btn
                             color="primary"
                             label="Use Recompute.io"
                             @click="setDefaultRecompute"
-                            class="q-mr-sm"
                             :disable="saving"
                         />
                       </div>
@@ -508,6 +540,23 @@ const plotDirectories = ref<string[]>(['/mnt']);
 
 const recomputeHost = ref('');
 const recomputePort = ref(0);
+
+const publicFarmerKey = ref("");
+
+async function copyFarmerKey() {
+  if (!publicFarmerKey.value || !publicFarmerKey.value.trim()) {
+    notificationStore.info('No public farmer key available to copy yet.');
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(publicFarmerKey.value.trim());
+    notificationStore.success('Public farmer key copied to clipboard.');
+  } catch (err) {
+    console.error('Failed to copy farmer key:', err);
+    notificationStore.error('Failed to copy public farmer key to clipboard.');
+  }
+}
 
 function createDefaultConfig(): FarmerConfig {
   return {

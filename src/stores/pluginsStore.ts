@@ -3,6 +3,9 @@ import {defineStore} from 'pinia'
 import type {Plugin, PluginStatus} from "@/types/plugins.ts";
 import {del, get, post, put} from "@/utils/api.ts";
 
+/**
+ * Plugin management store handling installation, configuration, and lifecycle
+ */
 export const usePluginStore = defineStore('plugins', {
     state: () => ({
         plugins: {} as Record<string, Plugin>,
@@ -12,6 +15,9 @@ export const usePluginStore = defineStore('plugins', {
     }),
 
     getters: {
+        /**
+         * Plugins sorted alphabetically by name, filtering out invalid entries
+         */
         sortedPlugins: (state) => {
             if (!state.plugins || Object.keys(state.plugins).length === 0) {
                 return {};
@@ -19,11 +25,7 @@ export const usePluginStore = defineStore('plugins', {
 
             const validEntries = Object.entries(state.plugins)
                 .filter(([_, plugin]) => {
-                    const isValid = plugin && typeof plugin === 'object' && plugin.name;
-                    if (!isValid) {
-                        console.warn('Found invalid plugin entry:', plugin);
-                    }
-                    return isValid;
+                    return plugin && typeof plugin === 'object' && plugin.name;
                 });
 
             return validEntries
@@ -67,6 +69,9 @@ export const usePluginStore = defineStore('plugins', {
                 .length;
         }),
 
+        /**
+         * System plugins that cannot be disabled or removed
+         */
         builtInPlugins: (state) => computed(() => {
             return Object.values(state.plugins).filter(plugin => {
                 const status = state.pluginStatus[plugin.name]
@@ -77,6 +82,10 @@ export const usePluginStore = defineStore('plugins', {
     },
 
     actions: {
+        /**
+         * Fetch all plugins and their status from the API
+         * Handles both array and object response formats, with fallback status fetching
+         */
         async fetchPlugins() {
             this.loading = true;
             this.error = null;
@@ -89,30 +98,23 @@ export const usePluginStore = defineStore('plugins', {
                     }
                 });
 
-                // Debug output
-                console.log('API Response:', response);
-                console.log('Response type:', typeof response);
-                console.log('Is array?', Array.isArray(response));
-
-                // Reset the store
                 this.plugins = {};
                 this.pluginStatus = {};
 
                 if (!response) {
-                    console.log('No response from API');
                     return;
                 }
 
+                // Handle HTML error responses
                 if (typeof response === 'string' && response.includes('<!DOCTYPE html>')) {
-                    console.error('Received HTML instead of JSON');
                     this.error = 'API returned invalid data format. Please check the API endpoint.';
                     return;
                 }
 
                 let processedPlugins = {};
 
+                // Handle both array and object response formats
                 if (Array.isArray(response)) {
-                    console.log('Processing array response');
                     processedPlugins = response.reduce((acc, plugin) => {
                         if (plugin && plugin.name) {
                             acc[plugin.name] = plugin;
@@ -120,7 +122,6 @@ export const usePluginStore = defineStore('plugins', {
                         return acc;
                     }, {});
                 } else if (typeof response === 'object') {
-                    console.log('Processing object response');
                     processedPlugins = Object.entries(response).reduce((acc, [key, value]) => {
                         if (value && typeof value === 'object' && 'name' in value) {
                             (acc as any)[key] = value;
@@ -129,17 +130,14 @@ export const usePluginStore = defineStore('plugins', {
                     }, {});
                 }
 
-                console.log('Processed plugins:', processedPlugins);
-                console.log('Number of processed plugins:', Object.keys(processedPlugins).length);
-
                 this.plugins = processedPlugins;
 
+                // Fetch status for each plugin with error handling
                 for (const [name, plugin] of Object.entries(this.plugins)) {
                     if (plugin && plugin.name) {
                         try {
                             await this.fetchPluginStatus(name);
                         } catch (statusError) {
-                            console.warn(`Failed to fetch status for plugin '${name}':`, statusError);
                             this.pluginStatus[name] = {
                                 running: false,
                                 should_be_running: false,
@@ -149,7 +147,6 @@ export const usePluginStore = defineStore('plugins', {
                     }
                 }
             } catch (error) {
-                console.error('Failed to fetch plugins:', error);
                 this.error = 'Failed to load plugins. Please check the API connection.';
                 this.plugins = {};
             } finally {
@@ -157,13 +154,17 @@ export const usePluginStore = defineStore('plugins', {
             }
         },
 
+        /**
+         * Fetch runtime status for a specific plugin
+         * Automatically marks plugins as System type if they meet criteria
+         */
         async fetchPluginStatus(name: string) {
             try {
                 const encodedName = encodeURIComponent(name);
-
                 const status = await get(`/api/plugins/${encodedName}/status`)
                 this.pluginStatus[name] = status
 
+                // Auto-detect system plugins
                 if (status.running && status.should_be_running && !this.plugins[name]?.source) {
                     if (this.plugins[name]) {
                         this.plugins[name].plugin_type =  'System'
@@ -172,7 +173,6 @@ export const usePluginStore = defineStore('plugins', {
 
                 return status
             } catch (error) {
-                console.error(`Failed to fetch status for plugin '${name}':`, error)
                 this.pluginStatus[name] = {
                     running: false,
                     should_be_running: false,
@@ -182,6 +182,9 @@ export const usePluginStore = defineStore('plugins', {
             }
         },
 
+        /**
+         * Toggle plugin enabled state and start/stop accordingly
+         */
         async togglePlugin(name: string) {
             const plugin = this.plugins[name]
 
@@ -203,23 +206,26 @@ export const usePluginStore = defineStore('plugins', {
 
                 return true
             } catch (error) {
-                console.error('Failed to toggle plugin:', error)
                 throw error
             }
         },
 
+        /**
+         * Start a plugin and refresh its status
+         */
         async startPlugin(name: string) {
             try {
                 await post(`/api/plugins/${name}/start`, {}, {})
-
                 await this.fetchPluginStatus(name)
                 return true
             } catch (error) {
-                console.error(`Failed to start plugin '${name}':`, error)
                 throw error
             }
         },
 
+        /**
+         * Stop a plugin (prevents stopping System plugins)
+         */
         async stopPlugin(name: string) {
             const plugin = this.plugins[name]
 
@@ -229,15 +235,16 @@ export const usePluginStore = defineStore('plugins', {
 
             try {
                 await post(`/api/plugins/${name}/stop`, {}, {})
-
                 await this.fetchPluginStatus(name)
                 return true
             } catch (error) {
-                console.error(`Failed to stop plugin '${name}':`, error)
                 throw error
             }
         },
 
+        /**
+         * Add a new plugin with automatic type capitalization
+         */
         async addPlugin(plugin: Partial<Plugin>) {
             try {
                 const submittedPlugin = {
@@ -251,24 +258,27 @@ export const usePluginStore = defineStore('plugins', {
                 await this.fetchPlugins()
                 return response
             } catch (error) {
-                console.error('Failed to add plugin:', error)
                 throw error
             }
         },
 
+        /**
+         * Update existing plugin configuration
+         */
         async updatePlugin(plugin: Plugin) {
             try {
                 const response = await put('/api/plugins', plugin, {})
-
                 await this.fetchPlugins()
-
                 return response
             } catch (error) {
-                console.error('Failed to update plugin:', error)
                 throw error
             }
         },
 
+        /**
+         * Delete a plugin (prevents deleting System plugins)
+         * Automatically stops plugin before deletion if running
+         */
         async deletePlugin(name: string) {
             const plugin = this.plugins[name]
 
@@ -288,10 +298,8 @@ export const usePluginStore = defineStore('plugins', {
 
                 const response = await del(`/api/plugins/${name}`, {})
                 await this.fetchPlugins()
-
                 return response
             } catch (error) {
-                console.error('Failed to delete plugin:', error)
                 throw error
             }
         },
@@ -300,7 +308,6 @@ export const usePluginStore = defineStore('plugins', {
             try {
                 return await get(`/api/plugins/${name}/env`)
             } catch (error) {
-                console.error(`Failed to fetch environment for plugin '${name}':`, error)
                 throw error
             }
         },
@@ -309,7 +316,6 @@ export const usePluginStore = defineStore('plugins', {
             try {
                 return await post(`/api/plugins/${pluginName}/env`, envEntry, {})
             } catch (error) {
-                console.error(`Failed to set environment variable for plugin '${pluginName}':`, error)
                 throw error
             }
         },
@@ -318,7 +324,6 @@ export const usePluginStore = defineStore('plugins', {
             try {
                 return await del(`/api/plugins/${pluginName}/env/${key}`, {})
             } catch (error) {
-                console.error(`Failed to delete environment variable for plugin '${pluginName}':`, error)
                 throw error
             }
         },
@@ -335,7 +340,6 @@ export const usePluginStore = defineStore('plugins', {
             try {
                 return await post('/api/plugins/updates', {},{})
             } catch (error) {
-                console.error('Failed to check for plugin updates:', error)
                 throw error
             }
         },
@@ -344,16 +348,16 @@ export const usePluginStore = defineStore('plugins', {
             try {
                 return await post('/api/plugins/refresh', {}, {})
             } catch (error) {
-                console.error('Failed to refresh available plugins:', error)
                 throw error
             }
         },
 
-        // Get available plugins
+        /**
+         * Get available plugins from repository with data normalization
+         */
         async getAvailablePlugins() {
             try {
                 const available = await post('/api/plugins/available', {},{});
-                console.log('Available plugins response:', available);
 
                 if (Array.isArray(available)) {
                     return available.map(plugin => ({
@@ -371,11 +375,13 @@ export const usePluginStore = defineStore('plugins', {
 
                 return [];
             } catch (error) {
-                console.error('Failed to get available plugins:', error);
                 throw error;
             }
         },
 
+        /**
+         * Reset store to initial state
+         */
         resetState() {
             this.plugins = {}
             this.pluginStatus = {}

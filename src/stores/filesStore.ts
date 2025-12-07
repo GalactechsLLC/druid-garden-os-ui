@@ -6,32 +6,19 @@ import * as FileServices from '@/services/files'
 import {useNotificationStore} from "@/stores/notificationStore.ts";
 import {useConfigStore} from "@/stores/configStore.ts";
 
-
+/**
+ * File manager store handling navigation, operations, and bookmarks
+ * Integrates with config store for persistent bookmark storage
+ */
 export const useFilesStore = defineStore('files', () => {
     const configStore = useConfigStore();
     const notificationStore = useNotificationStore();
 
-    console.log("Initial configs in filesStore:", configStore.configs);
+    // Initialize configs if empty
     if (configStore.configs.length === 0) {
-        console.log("Config store empty on initialization, trying to fetch");
-        configStore.fetchConfigs().then(() => {
-            console.log("Configs loaded on initialization:", configStore.configs.length);
-            const bookmarkConfig = configStore.configs.find(c => c.key === 'bookmarks');
-            if (bookmarkConfig) {
-                console.log("Found bookmark config on init:", bookmarkConfig.key, bookmarkConfig.value?.substring(0, 100));
-            } else {
-                console.log("No bookmark config found after initialization");
-            }
-        }).catch(err => {
-            console.error("Error fetching configs on initialization:", err);
+        configStore.fetchConfigs().catch(() => {
+            // Silently handle config fetch errors on initialization
         });
-    } else {
-        const bookmarkConfig = configStore.configs.find(c => c.key === 'bookmarks');
-        if (bookmarkConfig) {
-            console.log("Found bookmark config immediately:", bookmarkConfig.key, bookmarkConfig.value?.substring(0, 100));
-        } else {
-            console.log("No bookmark config found initially");
-        }
     }
 
     const currentDirectory = ref<string>('/')
@@ -104,31 +91,37 @@ export const useFilesStore = defineStore('files', () => {
         selectedItems.value = []
     }
 
+    /**
+     * Save bookmarks to localStorage as fallback storage
+     */
     function saveBookmarksToStorage(bookmarksData: any[]) {
         try {
             localStorage.setItem('file_manager_bookmarks', JSON.stringify(bookmarksData));
-            console.log('Saved bookmarks to localStorage:', bookmarksData);
             return true;
         } catch (err) {
-            console.error('Failed to save bookmarks to localStorage:', err);
             return false;
         }
     }
 
+    /**
+     * Load bookmarks from localStorage fallback storage
+     */
     function loadBookmarksFromStorage() {
         try {
             const data = localStorage.getItem('file_manager_bookmarks');
             if (data) {
                 const parsed = JSON.parse(data);
-                console.log('Loaded bookmarks from localStorage:', parsed);
                 return parsed;
             }
         } catch (err) {
-            console.error('Failed to load bookmarks from localStorage:', err);
+            // Silently handle parsing errors
         }
         return null;
     }
 
+    /**
+     * Fetch directory contents and update navigation history
+     */
     async function fetchDirectoryContents(dirPath: string = currentDirectory.value) {
         try {
             loading.value = true
@@ -139,6 +132,7 @@ export const useFilesStore = defineStore('files', () => {
 
             currentDirectory.value = dirPath
 
+            // Update navigation history
             if (fileHistory.value[historyIndex.value] !== dirPath) {
                 fileHistory.value = fileHistory.value.slice(0, historyIndex.value + 1)
                 fileHistory.value.push(dirPath)
@@ -148,7 +142,6 @@ export const useFilesStore = defineStore('files', () => {
             loading.value = false
             return entries
         } catch (err) {
-            console.error('Failed to fetch directory contents:', err)
             error.value = err instanceof Error ? err.message : 'Unknown error occurred'
             loading.value = false
             directoryContents.value = []
@@ -179,6 +172,9 @@ export const useFilesStore = defineStore('files', () => {
         navigateToDirectory(parentPath)
     }
 
+    /**
+     * Select item and optionally open it (directory navigation or file editing)
+     */
     async function selectItem(item: FileEntry, multiple: boolean = false, openItem: boolean = true) {
         if (!multiple) {
             selectedItems.value = [item]
@@ -200,6 +196,9 @@ export const useFilesStore = defineStore('files', () => {
         }
     }
 
+    /**
+     * Open file for editing with enhanced error handling for different file types
+     */
     async function openFile(file: FileEntry) {
         try {
             loading.value = true;
@@ -213,8 +212,6 @@ export const useFilesStore = defineStore('files', () => {
             loading.value = false;
             return response.contents;
         } catch (err) {
-            console.error('Failed to open file:', err);
-
             if (file.entry_type === 'Directory') {
                 error.value = err instanceof Error ? err.message : 'Unknown error occurred';
             } else {
@@ -224,6 +221,7 @@ export const useFilesStore = defineStore('files', () => {
                     (typeof err === 'string' ? err :
                         (err && typeof err === 'object' ? JSON.stringify(err) : 'Unknown error'));
 
+                // Provide user-friendly error messages for common file issues
                 let errorMessage = `Failed to open file: ${file.name}`;
                 if (errorDetail.includes('stream did not contain valid UTF-8')) {
                     errorMessage = `"${file.name}" contains binary data and cannot be displayed as text`;
@@ -258,7 +256,6 @@ export const useFilesStore = defineStore('files', () => {
             loading.value = false
             return true
         } catch (err) {
-            console.error('Failed to save file:', err)
             error.value = err instanceof Error ? err.message : 'Unknown error occurred'
             loading.value = false
             throw err
@@ -286,7 +283,6 @@ export const useFilesStore = defineStore('files', () => {
             loading.value = false
             return true
         } catch (err) {
-            console.error('Failed to create directory:', err)
             error.value = err instanceof Error ? err.message : 'Unknown error occurred'
             loading.value = false
             throw err
@@ -309,7 +305,6 @@ export const useFilesStore = defineStore('files', () => {
             loading.value = false
             return true
         } catch (err) {
-            console.error('Failed to create file:', err)
             error.value = err instanceof Error ? err.message : 'Unknown error occurred'
             loading.value = false
             throw err
@@ -333,7 +328,6 @@ export const useFilesStore = defineStore('files', () => {
             loading.value = false
             return true
         } catch (err) {
-            console.error('Failed to delete items:', err)
             error.value = err instanceof Error ? err.message : 'Unknown error occurred'
             loading.value = false
             throw err
@@ -354,8 +348,10 @@ export const useFilesStore = defineStore('files', () => {
         }
     }
 
-
-
+    /**
+     * Paste clipboard items with support for copy/cut operations
+     * Handles both files and directories with appropriate operations
+     */
     async function pasteFromClipboard(destination: string = currentDirectory.value) {
         if (!clipboardItems.value.items.length || !clipboardItems.value.operation) {
             return false
@@ -367,8 +363,6 @@ export const useFilesStore = defineStore('files', () => {
 
             const items = clipboardItems.value.items
             const operation = clipboardItems.value.operation
-
-            console.log(`Pasting ${items.length} items with operation: ${operation}`)
 
             for (const item of items) {
                 const destPath = FileUtils.getPasteDestinationPath(item, destination)
@@ -382,7 +376,6 @@ export const useFilesStore = defineStore('files', () => {
                     } else if (item.entry_type === 'Directory') {
                         const itemName = item.name || FileUtils.getNameFromPath(item.path)
                         await FileServices.createDirectory(itemName, destination)
-
                         // TODO: Copy directory contents recursively
                     }
                 } else if (operation === 'cut') {
@@ -398,6 +391,7 @@ export const useFilesStore = defineStore('files', () => {
                 fileOperations.value.unshift(newOperation)
             }
 
+            // Clear clipboard after cut operation
             if (operation === 'cut') {
                 clipboardItems.value = { items: [], operation: null }
             }
@@ -407,7 +401,6 @@ export const useFilesStore = defineStore('files', () => {
             loading.value = false
             return true
         } catch (err) {
-            console.error('Failed to paste items:', err)
             error.value = err instanceof Error ? err.message : 'Unknown error occurred'
             loading.value = false
             throw err
@@ -430,7 +423,6 @@ export const useFilesStore = defineStore('files', () => {
             loading.value = false
             return true
         } catch (err) {
-            console.error('Failed to rename item:', err)
             error.value = err instanceof Error ? err.message : 'Unknown error occurred'
             loading.value = false
             throw err
@@ -454,7 +446,6 @@ export const useFilesStore = defineStore('files', () => {
             isSearching.value = false
             return results
         } catch (err) {
-            console.error('Failed to search files:', err)
             error.value = err instanceof Error ? err.message : 'Unknown error occurred'
             isSearching.value = false
             searchResults.value = []
@@ -474,31 +465,29 @@ export const useFilesStore = defineStore('files', () => {
             diskStats.value = stats
             return stats
         } catch (err) {
-            console.error('Failed to fetch disk stats:', err)
             error.value = err instanceof Error ? err.message : 'Unknown error occurred'
             return diskStats.value
         }
     }
 
+    /**
+     * Load bookmarks from config store with fallback parsing strategies
+     * Handles various JSON formats and provides localStorage fallback
+     */
     function loadBookmarksFromConfig(): void {
-        console.log("Loading bookmarks from config...");
-
         try {
             const bookmarkConfig = configStore.configs.find(c => c.key === 'bookmarks');
 
-            console.log("Bookmark config found:", bookmarkConfig);
-
             if (bookmarkConfig && bookmarkConfig.value) {
-                console.log('Bookmark config value:', bookmarkConfig.value);
                 let bookmarksObj: Record<string, string> = {};
                 let parseSuccess = false;
+
+                // Try standard JSON parse first
                 try {
                     bookmarksObj = JSON.parse(bookmarkConfig.value);
-                    console.log('Successfully parsed bookmarks using JSON.parse:', bookmarksObj);
                     parseSuccess = true;
                 } catch (jsonError) {
-                    console.warn('Standard JSON parse failed:', jsonError);
-
+                    // Try cleaning malformed JSON
                     try {
                         const cleanValue = bookmarkConfig.value
                             .replace(/'/g, '"')
@@ -506,10 +495,9 @@ export const useFilesStore = defineStore('files', () => {
                             .replace(/,\s*\]/g, ']');
 
                         bookmarksObj = JSON.parse(cleanValue);
-                        console.log('Successfully parsed with cleaned JSON:', bookmarksObj);
                         parseSuccess = true;
                     } catch (cleanError) {
-                        console.warn('Cleaned JSON parse failed:', cleanError);
+                        // Last resort: regex extraction
                         try {
                             const pairs = bookmarkConfig.value.match(/"([^"]+)"\s*:\s*"([^"]+)"/g) || [];
                             pairs.forEach(pair => {
@@ -520,9 +508,8 @@ export const useFilesStore = defineStore('files', () => {
                                     parseSuccess = true;
                                 }
                             });
-                            console.log('Extracted bookmarks using regex:', bookmarksObj);
                         } catch (regexError) {
-                            console.warn('Regex parsing failed:', regexError);
+                            // All parsing methods failed
                         }
                     }
                 }
@@ -534,6 +521,7 @@ export const useFilesStore = defineStore('files', () => {
                         let icon = 'bookmark';
                         let color = 'blue';
 
+                        // Set appropriate icons for common paths
                         if (path === '/') {
                             icon = 'folder';
                             color = 'deep-orange';
@@ -541,39 +529,30 @@ export const useFilesStore = defineStore('files', () => {
                             icon = 'home';
                             color = 'primary';
                         }
-                        newBookmarks.push({
-                            name,
-                            path,
-                            icon,
-                            color
-                        });
+                        newBookmarks.push({ name, path, icon, color });
                     });
 
-                    console.log('Loaded bookmarks from config:', newBookmarks);
                     bookmarks.value = newBookmarks;
                     localStorage.setItem('file_manager_bookmarks', JSON.stringify(newBookmarks));
                     return;
                 }
             }
 
-            console.log('No valid bookmarks config found in database, checking localStorage');
-
+            // Fallback to localStorage
             const savedBookmarks = localStorage.getItem('file_manager_bookmarks');
             if (savedBookmarks) {
                 try {
                     const parsedBookmarks = JSON.parse(savedBookmarks);
                     if (Array.isArray(parsedBookmarks) && parsedBookmarks.length > 0) {
-                        console.log('Using bookmarks from localStorage:', parsedBookmarks);
                         bookmarks.value = parsedBookmarks;
                         return;
                     }
                 } catch (err) {
-                    console.error('Failed to parse localStorage bookmarks:', err);
+                    // Failed to parse localStorage bookmarks
                 }
             }
 
-            console.log('No bookmarks found anywhere, using defaults');
-
+            // Use default bookmarks
             const defaultBookmarks = [
                 {
                     name: 'Root',
@@ -590,18 +569,16 @@ export const useFilesStore = defineStore('files', () => {
             ];
 
             bookmarks.value = defaultBookmarks;
-
             localStorage.setItem('file_manager_bookmarks', JSON.stringify(defaultBookmarks));
 
             saveBookmarksToConfig({
                 'Root': '/',
                 'Home': '/home'
-            }).catch(err => {
-                console.error('Failed to save default bookmarks to config:', err);
+            }).catch(() => {
+                // Silently handle save failure
             });
         } catch (err) {
-            console.error('Error loading bookmarks from config:', err);
-
+            // Fallback to minimal default
             const defaultBookmarks = [
                 {
                     name: 'Root',
@@ -616,6 +593,10 @@ export const useFilesStore = defineStore('files', () => {
         }
     }
 
+    /**
+     * Save bookmarks to config store with formatted JSON
+     * Creates new config entry if none exists
+     */
     async function saveBookmarksToConfig(bookmarksObj?: Record<string, string> | null): Promise<boolean> {
         try {
             const bookmarksToSave: Record<string, string> = bookmarksObj || {};
@@ -624,9 +605,9 @@ export const useFilesStore = defineStore('files', () => {
                 bookmarks.value.forEach(bookmark => {
                     bookmarksToSave[bookmark.name] = bookmark.path;
                 });
-                console.log('Saving current bookmarks to config:', bookmarksToSave);
             }
 
+            // Format JSON with proper indentation
             let formattedJson = '{\n';
             const entries = Object.entries(bookmarksToSave);
 
@@ -644,67 +625,49 @@ export const useFilesStore = defineStore('files', () => {
                 formattedJson += '}';
             }
 
-            console.log('Formatted JSON to save:', formattedJson);
-
             const bookmarkConfig = configStore.configs.find(c => c.key === 'bookmarks');
 
             if (bookmarkConfig) {
-                console.log('Updating existing bookmarks config:', bookmarkConfig.key);
                 await configStore.updateConfig('bookmarks', formattedJson, bookmarkConfig.value);
-                console.log('Successfully updated bookmarks config');
                 return true;
             } else {
-                console.log('No existing bookmarks config found, creating new one');
-
+                // Create new config if none exists
                 if (configStore.configs.length === 0) {
-                    console.log("Config store empty, fetching configs first");
                     await configStore.fetchConfigs();
                 }
 
                 try {
-                    const newConfig = await configStore.createConfig({
+                    await configStore.createConfig({
                         key: 'bookmarks',
                         value: formattedJson,
                         category: 'files',
                         system: 0
                     });
 
-                    console.log('Successfully created bookmarks config:', newConfig);
-
                     await configStore.fetchConfigs();
-                    const verifyConfig = configStore.configs.find(c => c.key === 'bookmarks');
-                    if (verifyConfig) {
-                        console.log("Verified config was created successfully");
-                    } else {
-                        console.warn("Config creation succeeded but verification failed");
-                    }
-
                     return true;
                 } catch (createErr) {
-                    console.error('Failed to create bookmarks config:', createErr);
-
+                    // Save to localStorage as fallback
                     try {
                         localStorage.setItem('file_manager_bookmarks', JSON.stringify(bookmarks.value));
-                        console.log('Saved bookmarks to localStorage as fallback');
                     } catch (lsErr) {
-                        console.error('Failed to save to localStorage:', lsErr);
+                        // Complete storage failure
                     }
-
                     return false;
                 }
             }
         } catch (err) {
-            console.error('Failed to save bookmarks to config:', err);
             return false;
         }
     }
 
+    /**
+     * Add new bookmark with duplicate path checking
+     */
     function addBookmark(path: string, name: string, icon: string = 'bookmark', color: string = 'blue'): boolean {
         if (bookmarks.value.some(b => b.path === path)) {
             return false;
         }
-
-        console.log(`Adding bookmark: ${name} -> ${path}`);
 
         bookmarks.value.push({ name, path, icon, color });
 
@@ -713,34 +676,29 @@ export const useFilesStore = defineStore('files', () => {
         saveBookmarksToConfig()
             .then(success => {
                 if (success) {
-                    console.log(`Successfully saved bookmark: ${name}`);
-
                     configStore.fetchConfigs().then(() => {
-                        console.log('Config refreshed after bookmark addition');
                         loadBookmarksFromConfig();
                         notificationStore.success(`Added "${name}" to bookmarks`);
-                    }).catch(err => {
-                        console.error('Error refreshing configs after bookmark addition:', err);
+                    }).catch(() => {
                         notificationStore.success(`Added "${name}" to bookmarks`);
                     });
                 } else {
-                    console.warn('Failed to save bookmark to config, but saved to localStorage');
                     notificationStore.warning('Bookmark may not persist in all sessions');
                 }
             })
-            .catch(err => {
-                console.error('Error saving bookmark to config:', err);
+            .catch(() => {
                 notificationStore.success(`Bookmark added to current session`);
             });
 
         return true;
     }
 
+    /**
+     * Remove bookmark by path
+     */
     function removeBookmark(path: string): boolean {
         const index = bookmarks.value.findIndex(b => b.path === path)
         if (index >= 0) {
-            console.log(`Removing bookmark: ${bookmarks.value[index].name}`);
-
             const bookmarkName = bookmarks.value[index].name;
 
             bookmarks.value.splice(index, 1);
@@ -750,23 +708,17 @@ export const useFilesStore = defineStore('files', () => {
             saveBookmarksToConfig()
                 .then(success => {
                     if (success) {
-                        console.log('Successfully removed bookmark from config');
-
                         configStore.fetchConfigs().then(() => {
-                            console.log('Config refreshed after bookmark removal');
                             loadBookmarksFromConfig();
                             notificationStore.success(`Bookmark "${bookmarkName}" removed`);
-                        }).catch(err => {
-                            console.error('Error refreshing configs after bookmark removal:', err);
+                        }).catch(() => {
                             notificationStore.success(`Bookmark "${bookmarkName}" removed`);
                         });
                     } else {
-                        console.warn('Failed to remove bookmark from config, but removed from localStorage');
                         notificationStore.warning('Bookmark may not persist in all sessions');
                     }
                 })
-                .catch(err => {
-                    console.error('Error removing bookmark from config:', err);
+                .catch(() => {
                     notificationStore.success(`Bookmark removed from current session`);
                 });
 
@@ -788,34 +740,29 @@ export const useFilesStore = defineStore('files', () => {
         viewMode.value = mode
     }
 
+    /**
+     * Initialize store by loading configs and setting up initial state
+     */
     onMounted(async () => {
-        console.log("Files store mounted, loading configs and bookmarks");
-
         if (configStore.configs.length === 0) {
-            console.log("Config store empty, loading configs first");
             try {
                 await configStore.fetchConfigs();
-                console.log("Configs loaded, count:", configStore.configs.length);
-                console.log("Available configs:", configStore.configs.map(c => c.key));
             } catch (err) {
-                console.error("Error loading configs:", err);
+                // Continue with initialization even if config fetch fails
             }
-        } else {
-            console.log("Config store already loaded, count:", configStore.configs.length);
         }
 
         loadBookmarksFromConfig();
-
         fetchDirectoryContents();
         fetchDiskStats();
     });
 
+    /**
+     * Watch for config changes and reload bookmarks accordingly
+     */
     watch(() => configStore.configs, (newConfigs) => {
-        console.log("Config store updated, new count:", newConfigs.length);
         const bookmarkConfig = newConfigs.find(c => c.key === 'bookmarks');
         if (bookmarkConfig) {
-            console.log("Bookmark config found in updated configs:", bookmarkConfig.value?.substring(0, 100));
-
             loadBookmarksFromConfig();
         }
     }, { deep: true });

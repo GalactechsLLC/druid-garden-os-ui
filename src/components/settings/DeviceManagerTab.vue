@@ -154,10 +154,23 @@ const mountSetUid = ref(false);
 const mountUid = ref(1000);
 const mountGid = ref(1000);
 
+const labeledDrivesMap = computed<Record<string, string>>(() => {
+  const labeledDrivesConfig = configStore.configs.find(c => c.key === 'labeled_drives');
+  if (labeledDrivesConfig && labeledDrivesConfig.value) {
+    try {
+      return JSON.parse(labeledDrivesConfig.value) as Record<string, string>;
+    } catch (e) {
+      console.error('Error parsing labeled_drives config:', e);
+      return {};
+    }
+  }
+  return {};
+});
+
 const getPartitionDisplayName = (partition: Partition): string => {
   if (!partition.uuid) return partition.name || partition.device;
 
-  const customLabel = configStore.getDriveLabel(partition.uuid);
+  const customLabel = labeledDrivesMap.value[partition.uuid];
   if (customLabel) return customLabel;
 
   if (partition.label) return partition.label;

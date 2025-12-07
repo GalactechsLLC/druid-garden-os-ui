@@ -1,3 +1,6 @@
+/**
+ * Farmer configuration settings
+ */
 export interface FarmerConfig {
     selected_network: 'mainnet' | 'testnet11';
     ssl_root_path: string | null;
@@ -5,7 +8,6 @@ export interface FarmerConfig {
     fullnode_ws_port: number;
     fullnode_rpc_host: string;
     fullnode_rpc_port: number;
-
     farmer_info: Array<{
         farmer_secret_key: string;
         launcher_id: string;
@@ -13,7 +15,6 @@ export interface FarmerConfig {
         owner_secret_key: string;
         auth_secret_key: string;
     }>;
-
     pool_info: Array<{
         launcher_id: string;
         pool_url: string;
@@ -23,16 +24,17 @@ export interface FarmerConfig {
         owner_public_key: string;
         difficulty: number | null;
     }>;
-
     payout_address: string;
-
     harvester_configs: {
         druid_garden: null | Record<string, any>;
         custom_config: {
             plot_directories: string[];
             parallel_read: boolean;
+            /** Maximum CPU cores to use, -1 for unlimited */
             max_cpu_cores: number;
+            /** Maximum CUDA devices to use, -1 for unlimited */
             max_cuda_devices: number;
+            /** Maximum OpenCL devices to use, -1 for unlimited */
             max_opencl_devices: number;
             cuda_device_list: number[];
             opencl_device_list: number[];
@@ -40,30 +42,45 @@ export interface FarmerConfig {
             recompute_port: number;
         };
     };
-
     metrics: {
         enabled: boolean;
         port: number;
     };
 }
 
+/**
+ * Log entry from the farmer
+ */
 export interface LogEntry {
     level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG' | 'TRACE';
     target?: string;
     message: string;
+    /** Timestamp as array or Date object */
     timestamp: number[] | Date;
     uuid?: string;
 }
 
+/**
+ * Available log level values
+ */
 export type LogLevelValue = 'ALL' | 'TRACE' | 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
 
+/**
+ * Log level option for UI selection
+ */
 export interface LogLevelOption {
     label: string;
     value: LogLevelValue;
 }
 
+/**
+ * Maximum number of history points to retain
+ */
 export const MAX_HISTORY_POINTS = 1000;
 
+/**
+ * Available log levels for filtering
+ */
 export const logLevels: LogLevelOption[] = [
     { label: 'All', value: 'ALL' },
     { label: 'Trace', value: 'TRACE' },
@@ -73,22 +90,34 @@ export const logLevels: LogLevelOption[] = [
     { label: 'Error', value: 'ERROR' }
 ];
 
+/**
+ * Farmer activity metrics for a specific time period
+ */
 export interface FarmerActivity {
+    /** Plots that passed filter checks */
     passedFilter: {
+        /** Original plots */
         og: { processed: number; total: number };
+        /** NFT plots */
         nft: { processed: number; total: number };
+        /** Compressed plots */
         compressed: { processed: number; total: number };
     };
     proofsFound: number;
+    /** Partial proofs found by plot type */
     partialsFound: {
         nft: number;
         compressed: number;
     };
 }
 
+/**
+ * Historical record of farmer activity
+ */
 export interface FarmerActivityRecord {
     timestamp: Date;
     activity: FarmerActivity;
+    /** Additional blockchain context */
     metadata?: {
         challenge_hash: string;
         sp_hash: string;
@@ -99,6 +128,9 @@ export interface FarmerActivityRecord {
     };
 }
 
+/**
+ * Current state of the farmer
+ */
 export interface FarmerState {
     running: boolean;
     plot_counts: PlotCounts;
@@ -106,14 +138,21 @@ export interface FarmerState {
     config: FarmerConfig;
 }
 
+/**
+ * Plot counts by type and total space
+ */
 export interface PlotCounts {
     og_plot_count: number;
     nft_plot_count: number;
     compressed_plot_count: number;
     invalid_plot_count: number;
+    /** Total plot space in bytes */
     total_plot_space: number;
 }
 
+/**
+ * Blockchain peak information
+ */
 export interface Peak {
     header_hash: string;
     prev_hash: string;
@@ -142,6 +181,9 @@ export interface Peak {
     sub_epoch_summary_included: any;
 }
 
+/**
+ * Blockchain synchronization state
+ */
 export interface SyncState {
     sync_mode: boolean;
     synced: boolean;
@@ -149,12 +191,16 @@ export interface SyncState {
     sync_progress_height: number;
 }
 
+/**
+ * Current blockchain state information
+ */
 export interface BlockchainState {
     peak: Peak | null;
     genesis_challenge_initialized: boolean;
     sync: SyncState;
     difficulty: number;
     sub_slot_iters: number;
+    /** Network space in bytes */
     space: number;
     mempool_size: number;
     mempool_cost: number;
@@ -164,6 +210,9 @@ export interface BlockchainState {
     node_id: string;
 }
 
+/**
+ * Default farmer configuration
+ */
 export const DEFAULT_FARMER_CONFIG: FarmerConfig = {
     selected_network: 'mainnet',
     ssl_root_path: null,
@@ -213,17 +262,26 @@ export const DEFAULT_FARMER_CONFIG: FarmerConfig = {
     },
 };
 
+/**
+ * Result of farmer test operations
+ */
 export interface FarmerTestResult {
     success: boolean;
     message?: string;
 }
 
+/**
+ * Result of farmer actions
+ */
 export interface FarmerActionResult {
     success: boolean;
     message?: string;
     data?: any;
 }
 
+/**
+ * Result of mnemonic generation with config
+ */
 export interface MnemonicGenerationResult {
     success: boolean;
     config: FarmerConfig;

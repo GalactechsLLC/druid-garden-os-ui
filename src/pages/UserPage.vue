@@ -21,7 +21,14 @@ const editProfile = () => {
 
 // Check authentication on mount
 onMounted(async () => {
-  const isAuthenticated = userStore.refreshUserFromToken();
+  let isAuthenticated = false; // Initialize the variable
+
+  try {
+    isAuthenticated = await userStore.refreshUserFromToken();
+  } catch (error) {
+    console.error('Authentication check failed:', error);
+    isAuthenticated = false;
+  }
 
   if (!isAuthenticated) {
     await router.push('/login');

@@ -3,6 +3,8 @@ import type {NotificationType} from "@/types/notification.ts";
 
 /**
  * Extract filename or directory name from a path
+ * @param path - The file path to extract name from
+ * @returns The filename or directory name, or 'Root' for root path
  */
 export function getNameFromPath(path: string): string {
     if (path === '/') return 'Root'
@@ -11,6 +13,8 @@ export function getNameFromPath(path: string): string {
 
 /**
  * Check if a file is hidden (starts with .)
+ * @param name - The filename to check
+ * @returns True if the file is hidden
  */
 export function isFileHidden(name: string): boolean {
     return name.startsWith('.')
@@ -18,20 +22,19 @@ export function isFileHidden(name: string): boolean {
 
 /**
  * Process file entries to add additional UI properties
+ * @param entries - Array of file entries to process
+ * @returns Processed file entries with additional UI properties
  */
 export function processFileEntries(entries: FileEntry[]): FileEntry[] {
     if (!Array.isArray(entries)) {
-        console.error('Expected array of entries but got:', entries)
         return []
     }
 
     return entries.map(entry => {
         const name = getNameFromPath(entry.path)
 
-        // System directories that might be misidentified
         const systemDirectories = ['bin', 'lib', 'lib64', 'sbin', 'dev', 'boot', 'etc', 'usr', 'proc', 'sys', 'var'];
 
-        // Force entry_type to be Directory for system directories
         if (systemDirectories.includes(name)) {
             entry.entry_type = 'Directory';
         }
@@ -50,6 +53,11 @@ export function processFileEntries(entries: FileEntry[]): FileEntry[] {
 
 /**
  * Create a file operation entry
+ * @param type - The type of file operation
+ * @param source - Source path for the operation
+ * @param destination - Destination path for the operation
+ * @param status - Current status of the operation
+ * @returns A new file operation object
  */
 export function createOperationEntry(
     type: FileOperation['type'],
@@ -73,6 +81,8 @@ export function createOperationEntry(
 
 /**
  * Get breadcrumbs from a path
+ * @param path - The file path to create breadcrumbs for
+ * @returns Array of breadcrumb objects with name and path
  */
 export function getPathBreadcrumbs(path: string): { name: string, path: string }[] {
     const parts = path.split('/').filter(Boolean);
@@ -89,15 +99,22 @@ export function getPathBreadcrumbs(path: string): { name: string, path: string }
 
 /**
  * Get parent directory path
+ * @param path - The file path to get parent directory for
+ * @returns The parent directory path
  */
 export function getParentDirectory(path: string): string {
-    if (path === '/') return '/'; // Already at root
+    if (path === '/') return '/';
     const parentPath = path.substring(0, path.lastIndexOf('/'));
     return parentPath || '/';
 }
 
 /**
  * Filter and sort directory contents
+ * @param entries - Array of file entries to filter and sort
+ * @param showHidden - Whether to show hidden files
+ * @param sortByField - Field to sort by
+ * @param sortDesc - Whether to sort in descending order
+ * @returns Filtered and sorted file entries
  */
 export function filterAndSortEntries(
     entries: FileEntry[],
@@ -107,19 +124,15 @@ export function filterAndSortEntries(
 ): FileEntry[] {
     let filtered = [...entries];
 
-    // Filter hidden files if needed
     if (!showHidden) {
         filtered = filtered.filter(item => !(item.isHidden ?? false));
     }
 
-    // Sort the filtered entries
     return filtered.sort((a, b) => {
-        // Directories always come first
         if (a.entry_type !== b.entry_type) {
             return a.entry_type === 'Directory' ? -1 : 1;
         }
 
-        // Then sort by the selected property
         const aValue = a[sortByField as keyof FileEntry] ?? '';
         const bValue = b[sortByField as keyof FileEntry] ?? '';
 
@@ -139,6 +152,8 @@ export function filterAndSortEntries(
 
 /**
  * Calculate disk usage percentage
+ * @param stats - Filesystem statistics object
+ * @returns Usage percentage as a number
  */
 export function calculateDiskUsagePercent(stats: FileSystemStats): number {
     return Math.round((stats.usedSpace / (stats.totalSpace || 1)) * 100);
@@ -146,6 +161,9 @@ export function calculateDiskUsagePercent(stats: FileSystemStats): number {
 
 /**
  * Extract item name for copy/paste operations
+ * @param item - File entry object
+ * @param destination - Destination directory path
+ * @returns The full destination path for the item
  */
 export function getPasteDestinationPath(item: FileEntry, destination: string): string {
     const itemName = item.name || getNameFromPath(item.path);
@@ -154,6 +172,8 @@ export function getPasteDestinationPath(item: FileEntry, destination: string): s
 
 /**
  * Extract parent directory from a path
+ * @param path - The file path to get parent from
+ * @returns The parent directory path
  */
 export function getParentPath(path: string): string {
     return path.substring(0, path.lastIndexOf('/'));
@@ -161,6 +181,9 @@ export function getParentPath(path: string): string {
 
 /**
  * Get new path after rename
+ * @param oldPath - The original file path
+ * @param newName - The new filename
+ * @returns The new file path after rename
  */
 export function getNewPathAfterRename(oldPath: string, newName: string): string {
     const parentDir = getParentPath(oldPath);
@@ -169,6 +192,8 @@ export function getNewPathAfterRename(oldPath: string, newName: string): string 
 
 /**
  * Filter active file operations
+ * @param operations - Array of file operations
+ * @returns Array of active (pending or in-progress) operations
  */
 export function filterActiveOperations(operations: FileOperation[]): FileOperation[] {
     return operations.filter(op => op.status === 'pending' || op.status === 'in-progress');
@@ -176,6 +201,8 @@ export function filterActiveOperations(operations: FileOperation[]): FileOperati
 
 /**
  * Filter completed file operations
+ * @param operations - Array of file operations
+ * @returns Array of completed or failed operations
  */
 export function filterCompletedOperations(operations: FileOperation[]): FileOperation[] {
     return operations.filter(op => op.status === 'completed' || op.status === 'failed');
@@ -183,12 +210,12 @@ export function filterCompletedOperations(operations: FileOperation[]): FileOper
 
 /**
  * Format file size for display
- * @param {number} bytes - Size in bytes
- * @returns {string} Formatted size with appropriate unit
+ * @param bytes - Size in bytes
+ * @returns Formatted size with appropriate unit
  */
 export function formatFileSize(bytes: number): string {
     if (bytes === 0) return '0 Bytes';
-    const k = 1000; // Using decimal base (1000) instead of binary (1024)
+    const k = 1000;
     const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
@@ -196,8 +223,8 @@ export function formatFileSize(bytes: number): string {
 
 /**
  * Format date for display
- * @param {string} dateString - ISO date string
- * @returns {string} Formatted date string
+ * @param dateString - ISO date string
+ * @returns Formatted date string
  */
 export function formatDate(dateString: string): string {
     const date = new Date(dateString);
@@ -206,19 +233,17 @@ export function formatDate(dateString: string): string {
 
 /**
  * Get icon for file/directory based on type or extension
- * @param {FileEntry} item - File entry object
- * @returns {string} Material icon name
+ * @param item - File entry object
+ * @returns Material icon name
  */
 export function getItemIcon(item: FileEntry): string {
     if (item.entry_type === 'Directory') {
         return 'folder';
     }
 
-    // Get file extension
     const name = item.name || '';
     const extension = name.split('.').pop()?.toLowerCase() || '';
 
-    // Return icon based on file type
     switch (extension) {
         case 'pdf':
             return 'picture_as_pdf';
@@ -270,19 +295,17 @@ export function getItemIcon(item: FileEntry): string {
 
 /**
  * Get color for file type based on extension or type
- * @param {FileEntry} item - File entry object
- * @returns {string} Color name
+ * @param item - File entry object
+ * @returns Color name
  */
 export function getItemColor(item: FileEntry): string {
     if (item.entry_type === 'Directory') {
         return 'primary';
     }
 
-    // Get file extension
     const name = item.name || '';
     const extension = name.split('.').pop()?.toLowerCase() || '';
 
-    // Return color based on file type
     switch (extension) {
         case 'pdf':
             return 'red';
@@ -334,8 +357,8 @@ export function getItemColor(item: FileEntry): string {
 
 /**
  * Get icon for file operation
- * @param {FileOperation} operation - File operation object
- * @returns {string} Material icon name
+ * @param operation - File operation object
+ * @returns Material icon name
  */
 export function getOperationIcon(operation: FileOperation): string {
     switch (operation.type) {
@@ -358,8 +381,8 @@ export function getOperationIcon(operation: FileOperation): string {
 
 /**
  * Get color for file operation
- * @param {FileOperation} operation - File operation object
- * @returns {string} Color name
+ * @param operation - File operation object
+ * @returns Color name
  */
 export function getOperationColor(operation: FileOperation): string {
     if (operation.status === 'failed') {
@@ -384,12 +407,11 @@ export function getOperationColor(operation: FileOperation): string {
     }
 }
 
-
 /**
- * Handle file upload
- * @param {Event} event - File input change event
- * @param {Function} createFile - Function to create file
- * @param {Function} notify - Function to show notifications
+ * Handle file upload from input element
+ * @param event - File input change event
+ * @param createFile - Function to create file
+ * @param notify - Function to show notifications
  */
 export async function handleFileUpload(
     event: Event,
@@ -415,7 +437,6 @@ export async function handleFileUpload(
             await createFile(file.name, content);
             notify('positive', `File "${file.name}" uploaded successfully`, { icon: 'check_circle' });
 
-            // Reset the file input to allow uploading the same file again
             if (event.target) {
                 (event.target as HTMLInputElement).value = '';
             }

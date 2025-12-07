@@ -1,8 +1,12 @@
-
 import type {DiskInfo} from "@/types/disk.ts";
 import type {MemoryInfo, MemorySegmentType, System} from "@/types/system.ts";
 import {formatBytes} from "@/utils/format.ts";
 
+/**
+ * Detect CPU model based on system architecture
+ * @param systemData - System information object containing architecture details
+ * @returns Human-readable CPU model description
+ */
 export function detectCpuModel(systemData: System): string {
     if (systemData.arch.includes('arm')) {
         return 'ARM-based Processor';
@@ -13,11 +17,14 @@ export function detectCpuModel(systemData: System): string {
     }
 }
 
-// Try to detect the user that owns a process
+/**
+ * Detect the user that owns a process based on process characteristics
+ * @param process - Process object with name and other properties
+ * @returns Detected or assigned username for the process
+ */
 export function detectProcessUser(process: any): string {
     const commonUsers = ['root', 'user', 'www-data', 'nobody', 'system'];
 
-    // Determine user based on process name patterns
     if (process.name.includes('systemd') || process.name.includes('kernel')) {
         return 'root';
     } else if (process.name.includes('nginx') || process.name.includes('apache')) {
@@ -26,11 +33,14 @@ export function detectProcessUser(process: any): string {
         return 'user';
     }
 
-    // Return a random common user for variety
     return commonUsers[Math.floor(Math.random() * commonUsers.length)];
 }
 
-// Format process runtime
+/**
+ * Format process runtime from start time to human-readable duration
+ * @param startTime - Process start time in seconds since epoch
+ * @returns Formatted runtime string in HH:MM:SS format
+ */
 export function formatProcessRuntime(startTime: number): string {
     const now = Math.floor(Date.now() / 1000);
     const uptime = now - startTime;
@@ -42,34 +52,11 @@ export function formatProcessRuntime(startTime: number): string {
     return `${hours}:${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
-// Generate mock events for UI compatibility
-export function generateMockEvents(): any[] {
-    return [
-        {
-            id: '1',
-            type: 'info',
-            timestamp: new Date().toISOString(),
-            message: 'System information loaded successfully',
-            component: 'System'
-        },
-        {
-            id: '2',
-            type: 'warning',
-            timestamp: new Date(Date.now() - 1800000).toISOString(), // 30 min ago
-            message: 'High CPU usage detected',
-            component: 'CPU'
-        },
-        {
-            id: '3',
-            type: 'error',
-            timestamp: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
-            message: 'Failed to mount external storage device',
-            component: 'Storage'
-        }
-    ];
-}
-
-// Try to detect disk type based on path
+/**
+ * Detect disk type based on device path and name patterns
+ * @param disk - Disk information object
+ * @returns Human-readable disk type description
+ */
 export function detectDiskType(disk: DiskInfo): string {
     const path = disk.device.toLowerCase();
     const name = disk.name?.toLowerCase() || "";
@@ -80,10 +67,11 @@ export function detectDiskType(disk: DiskInfo): string {
     return 'Storage Device';
 }
 
-// ---------- UTILITY FUNCTIONS ----------
-
 /**
- * Helper function to safely convert values to numbers
+ * Safely convert values to numbers with fallback default
+ * @param value - Value to convert to number
+ * @param defaultValue - Default value if conversion fails
+ * @returns Converted number or default value
  */
 export function safeNumber(value: any, defaultValue = 0): number {
     if (value === null || value === undefined) return defaultValue;
@@ -96,6 +84,8 @@ export function safeNumber(value: any, defaultValue = 0): number {
 
 /**
  * Format uptime in seconds to human-readable string
+ * @param seconds - Uptime duration in seconds
+ * @returns Formatted uptime string (e.g., "5d 12h 30m 45s")
  */
 export function formatUptime(seconds: number): string {
     const days = Math.floor(seconds / (3600 * 24));
@@ -107,7 +97,10 @@ export function formatUptime(seconds: number): string {
 }
 
 /**
- * Calculate memory percentages for different memory segments
+ * Calculate memory percentage for different memory segments
+ * @param memoryInfo - Memory information object
+ * @param type - Type of memory segment to calculate
+ * @returns Percentage of total memory used by the specified segment
  */
 export function calculateMemoryPercentage(memoryInfo: MemoryInfo | null, type: MemorySegmentType): number {
     if (!memoryInfo) return 0;
@@ -118,7 +111,6 @@ export function calculateMemoryPercentage(memoryInfo: MemoryInfo | null, type: M
         case 'used':
             return (safeNumber(memoryInfo.used, 0) / total) * 100;
         case 'available':
-            // Available is what's available beyond free
             const availableExcludingFree = Math.max(0, safeNumber(memoryInfo.available, 0) - safeNumber(memoryInfo.free, 0));
             return (availableExcludingFree / total) * 100;
         case 'free':
@@ -129,7 +121,10 @@ export function calculateMemoryPercentage(memoryInfo: MemoryInfo | null, type: M
 }
 
 /**
- * Get the actual memory size for each segment (used, available-only, free)
+ * Get the actual memory size for each segment
+ * @param memoryInfo - Memory information object
+ * @param type - Type of memory segment to get size for
+ * @returns Memory size in bytes for the specified segment
  */
 export function getMemorySegmentSize(memoryInfo: MemoryInfo | null, type: MemorySegmentType): number {
     if (!memoryInfo) return 0;
@@ -138,7 +133,6 @@ export function getMemorySegmentSize(memoryInfo: MemoryInfo | null, type: Memory
         case 'used':
             return safeNumber(memoryInfo.used, 0);
         case 'available':
-            // Available-only is available minus free
             return Math.max(0, safeNumber(memoryInfo.available, 0) - safeNumber(memoryInfo.free, 0));
         case 'free':
             return safeNumber(memoryInfo.free, 0);
@@ -149,6 +143,10 @@ export function getMemorySegmentSize(memoryInfo: MemoryInfo | null, type: Memory
 
 /**
  * Format memory segment size to human-readable format
+ * @param memoryInfo - Memory information object
+ * @param type - Type of memory segment to format
+ * @param decimals - Number of decimal places to display
+ * @returns Formatted memory size string with appropriate units
  */
 export function formatMemorySegment(memoryInfo: MemoryInfo | null, type: MemorySegmentType, decimals = 2): string {
     return formatBytes(getMemorySegmentSize(memoryInfo, type), decimals);
@@ -156,6 +154,9 @@ export function formatMemorySegment(memoryInfo: MemoryInfo | null, type: MemoryS
 
 /**
  * Calculate the percentage of disk space used
+ * @param used - Amount of disk space used in bytes
+ * @param total - Total disk space in bytes
+ * @returns Percentage of disk space used, rounded to nearest integer
  */
 export function calculateDiskUsagePercentage(used: number, total: number): number {
     if (total === 0) return 0;

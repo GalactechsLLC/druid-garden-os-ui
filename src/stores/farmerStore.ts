@@ -6,6 +6,10 @@ import {useNotificationStore} from '@/stores/notificationStore';
 import {get, post} from "@/utils/api.ts";
 import {useFarmerChartStore} from '@/stores/farmerChartStore';
 
+/**
+ * Farmer management store handling configuration, lifecycle, and monitoring
+ * Integrates with chart collection and provides auto-refresh functionality
+ */
 export const useFarmerStore = defineStore('farmer', () => {
     const notificationStore = useNotificationStore();
 
@@ -42,14 +46,12 @@ export const useFarmerStore = defineStore('farmer', () => {
         }
     });
 
-
     // UI state
     const refreshInterval = ref<number | null>(null);
     const lastUpdated = ref<Date | null>(null);
     const autoRefresh = ref(true);
     const refreshRate = ref(5); // Seconds
     const loading = ref(true);
-    const error = ref<string | null>(null);
     const configValid = ref(false);
     const processingAction = ref(false);
 
@@ -71,7 +73,9 @@ export const useFarmerStore = defineStore('farmer', () => {
         return isRunning.value;
     });
 
-    // Actions
+    /**
+     * Test farmer configuration and update validation state
+     */
     async function updateConfigTestResult() {
         try {
             const result = await testFarmerConfig();
@@ -80,32 +84,30 @@ export const useFarmerStore = defineStore('farmer', () => {
                     (result as any).success : false;
         } catch (err) {
             configTestResult.value = false;
-            error.value = err instanceof Error ? err.message : 'Failed to test farmer config';
+            notificationStore.error('Error testing farmer config: ' + err);
         }
     }
+
     function setRunningState(value: boolean) {
         isRunning.value = value;
     }
 
+    /**
+     * Check farmer process status with support for different status formats
+     */
     async function checkFarmerStatus() {
         try {
             const status = await get('farmer/status');
 
             if (status === 'Running') {
                 setRunningState(true);
-                console.log('Farmer status: Running');
             } else if (status === 'Stopped' || status === 'Unknown') {
                 setRunningState(false);
-                console.log('Farmer status:', status);
             } else if (typeof status === 'object' && status.Exited !== undefined) {
                 // Handle Exited(i32) case
                 setRunningState(false);
-                console.log('Farmer exited with code:', status.Exited);
-            } else {
-                console.log('Unexpected farmer status format:', status);
             }
         } catch (error) {
-            console.error('Error checking farmer status:', error);
             setRunningState(false);
         }
     }
@@ -119,10 +121,8 @@ export const useFarmerStore = defineStore('farmer', () => {
             isRunning.value = state.running;
 
             await updateConfigTestResult();
-            error.value = null;
         } catch (err) {
-            error.value = err instanceof Error ? err.message : 'Failed to fetch farmer state';
-            notificationStore.error('Error fetching farmer state: ' + error.value);
+            notificationStore.error('Error fetching farmer state: ' + err);
         } finally {
             loading.value = false;
         }
@@ -139,14 +139,16 @@ export const useFarmerStore = defineStore('farmer', () => {
             configValid.value = true;
             return true;
         } catch (err) {
-            error.value = err instanceof Error ? err.message : 'Failed to update farmer configuration';
-            notificationStore.error('Error updating farmer configuration: ' + error.value);
+            notificationStore.error('Error updating farmer configuration: ' + err);
             return false;
         } finally {
             loading.value = false;
         }
     }
 
+    /**
+     * Start farmer process and initialize chart data collection
+     */
     async function startFarmer() {
         try {
             processingAction.value = true;
@@ -161,28 +163,30 @@ export const useFarmerStore = defineStore('farmer', () => {
                 await nextTick();
 
                 notificationStore.success('Farmer started successfully');
+
+                // Start chart data collection
                 try {
                     const chartStore = useFarmerChartStore();
                     chartStore.startChartCollection();
-                    console.log('✅ Chart data collection started from farmer store');
                 } catch (error) {
-                    console.error('Failed to start chart collection:', error);
+                    // Chart collection failure shouldn't prevent farmer start
                 }
                 return { success: true };
-            } catch (apiError) {
-                console.error('API error:', apiError);
-                notificationStore.error('Failed to start farmer');
-                return { success: false };
+            } catch (apiErr) {
+                notificationStore.error('Error starting farmer: ' + apiErr);
+                return { success: false, message: apiErr };
             }
         } catch (err) {
-            error.value = err instanceof Error ? err.message : 'Failed to start farmer';
-            notificationStore.error('Error starting farmer: ' + error.value);
-            return { success: false, message: error.value };
+            notificationStore.error('Error starting farmer: ' + err);
+            return { success: false, message: err };
         } finally {
             processingAction.value = false;
         }
     }
 
+    /**
+     * Stop farmer process and halt chart data collection
+     */
     async function stopFarmer() {
         try {
             processingAction.value = true;
@@ -195,23 +199,22 @@ export const useFarmerStore = defineStore('farmer', () => {
                 await nextTick();
 
                 notificationStore.success('Farmer stopped successfully')
+
+                // Stop chart data collection
                 try {
                     const chartStore = useFarmerChartStore();
                     chartStore.stopChartCollection();
-                    console.log('❌ Chart data collection stopped from farmer store');
                 } catch (error) {
-                    console.error('Failed to stop chart collection:', error);
+                    // Chart collection failure shouldn't prevent farmer stop
                 }
                 return { success: true };
-            } catch (apiError) {
-                console.error('API error:', apiError);
-                notificationStore.error('Failed to stop farmer');
-                return { success: false };
+            } catch (apiErr) {
+                notificationStore.error('Error stopping farmer: ' + apiErr);
+                return { success: false, message: apiErr };
             }
         } catch (err) {
-            error.value = err instanceof Error ? err.message : 'Failed to stop farmer';
-            notificationStore.error('Error stopping farmer: ' + error.value);
-            return { success: false, message: error.value };
+            notificationStore.error('Error stopping farmer: ' + err);
+            return { success: false, message: err };
         } finally {
             processingAction.value = false;
         }
@@ -227,14 +230,15 @@ export const useFarmerStore = defineStore('farmer', () => {
 
             lastUpdated.value = new Date();
         } catch (err) {
-            error.value = err instanceof Error ? err.message : 'Failed to fetch data';
-            notificationStore.error('Error fetching data: ' + error.value);
+            notificationStore.error('Error fetching data: ' + err);
         } finally {
             loading.value = false;
         }
     }
 
-
+    /**
+     * Toggle auto-refresh and manage interval lifecycle
+     */
     function toggleAutoRefresh() {
         autoRefresh.value = !autoRefresh.value;
 
@@ -264,6 +268,9 @@ export const useFarmerStore = defineStore('farmer', () => {
         }
     }
 
+    /**
+     * Update refresh rate and restart auto-refresh if active
+     */
     function setRefreshRate(rate: number) {
         refreshRate.value = rate;
 
@@ -276,7 +283,6 @@ export const useFarmerStore = defineStore('farmer', () => {
 
     function refreshData() {
         fetchAllData();
-        // notificationStore.success('Data refreshed');
     }
 
     function resetConfig() {
@@ -284,7 +290,9 @@ export const useFarmerStore = defineStore('farmer', () => {
         notificationStore.info('Farmer configuration reset to defaults');
     }
 
-    // Initialize
+    /**
+     * Initialize store with data fetch and auto-refresh setup
+     */
     function initialize() {
         fetchAllData();
         if (autoRefresh.value) {
@@ -292,10 +300,16 @@ export const useFarmerStore = defineStore('farmer', () => {
         }
     }
 
+    /**
+     * Clean up intervals on store destruction
+     */
     function cleanup() {
         stopAutoRefresh();
     }
 
+    /**
+     * Get pool login URL with validation checks
+     */
     async function getPoolLoginUrl(launcherId?: string) {
         if (!canStartFarmer.value) {
             throw new Error('Cannot get pool login URL: Farmer configuration is not ready');
@@ -318,6 +332,9 @@ export const useFarmerStore = defineStore('farmer', () => {
         }
     }
 
+    /**
+     * Load farmer configuration from config store with JSON parsing
+     */
     async function loadFarmerConfigFromSettings() {
         try {
             const configs = await get('/config', {
@@ -331,16 +348,14 @@ export const useFarmerStore = defineStore('farmer', () => {
                     try {
                         const parsedConfig = JSON.parse(farmerConfigEntry.value);
                         farmer.value.config = parsedConfig;
-                        console.log('Farmer config loaded from settings:', parsedConfig);
                         return parsedConfig;
                     } catch (parseError) {
-                        console.error('Failed to parse farmer config JSON:', parseError);
+                        // Invalid JSON in config
                     }
                 }
             }
             return null;
         } catch (err) {
-            console.error('Failed to load farmer config from settings:', err);
             return null;
         }
     }
@@ -354,7 +369,6 @@ export const useFarmerStore = defineStore('farmer', () => {
         autoRefresh,
         refreshRate,
         loading,
-        error,
         configValid,
         processingAction,
 

@@ -2,38 +2,12 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { get, post, del } from '@/utils/api';
 import { useConfigStore } from '@/stores/configStore';
+import type { LEDConfig, BoardConfig, PinUpdatePayload, LedColorMode } from '@/types/led';
 
-export interface LEDConfig {
-    red: number;
-    green: number;
-    blue: number;
-    brightness: number;
-    enabled: boolean;
-}
-
-export interface BoardConfig {
-    id: string;
-    name: string;
-    displayName: string;
-    pins: {
-        red: number;
-        green: number;
-        blue: number;
-    };
-    config: LEDConfig;
-}
-
-export interface PinUpdatePayload {
-    pin: number;
-    color: 'Red' | 'Green' | 'Blue';
-}
-
-export interface LedColorMode {
-    red: number;
-    green: number;
-    blue: number;
-}
-
+/**
+ * LED control store managing RGB LEDs across different board types
+ * Handles GPIO pin configuration, color control, and board-specific settings
+ */
 export const useLEDStore = defineStore('led', () => {
     const configStore = useConfigStore();
 
@@ -42,7 +16,9 @@ export const useLEDStore = defineStore('led', () => {
     const loading = ref<boolean>(false);
     const error = ref<string | null>(null);
 
-    // Board configurations with your updated GPIO pins
+    /**
+     * Supported board configurations with GPIO pin mappings
+     */
     const boards = ref<BoardConfig[]>([
         {
             id: 'rpi4',
@@ -85,7 +61,6 @@ export const useLEDStore = defineStore('led', () => {
         }
     ]);
 
-    // Computed properties
     const currentBoard = computed(() => configStore.getLEDBoardType());
 
     const currentBoardConfig = computed(() =>
@@ -99,7 +74,6 @@ export const useLEDStore = defineStore('led', () => {
         }))
     );
 
-    // API Actions
     const getBrightness = async (): Promise<number> => {
         try {
             const brightness = await get<number>('/led/brightness', {
@@ -108,7 +82,6 @@ export const useLEDStore = defineStore('led', () => {
             });
             return brightness || 0;
         } catch (err) {
-            console.error('Failed to get brightness:', err);
             return 0;
         }
     };
@@ -128,7 +101,6 @@ export const useLEDStore = defineStore('led', () => {
                 board.config.brightness = brightness;
             }
         } catch (err) {
-            console.error('Failed to set brightness:', err);
             throw err;
         }
     };
@@ -141,7 +113,6 @@ export const useLEDStore = defineStore('led', () => {
             });
             return value || 0;
         } catch (err) {
-            console.error(`Failed to get pin ${pin} value:`, err);
             return 0;
         }
     };
@@ -156,7 +127,6 @@ export const useLEDStore = defineStore('led', () => {
                 showErrorNotification: true
             });
         } catch (err) {
-            console.error(`Failed to set pin ${pin} to ${color}:`, err);
             throw err;
         }
     };
@@ -170,14 +140,15 @@ export const useLEDStore = defineStore('led', () => {
                 showErrorNotification: true
             });
         } catch (err) {
-            console.error('Failed to clear pin modes:', err);
             throw err;
         }
     };
 
+    /**
+     * Set LED color using API's expected format: {"Solid": [r, g, b]}
+     */
     const setColorMode = async (colorMode: LedColorMode): Promise<void> => {
         try {
-            // The API expects {"Solid": [r, g, b]} format
             const payload = {
                 "Solid": [colorMode.red, colorMode.green, colorMode.blue]
             };
@@ -189,39 +160,34 @@ export const useLEDStore = defineStore('led', () => {
                 showErrorNotification: true
             });
         } catch (err) {
-            console.error('Failed to set color mode:', err);
             throw err;
         }
     };
 
-    // Local state management actions
+    /**
+     * Switch board type and reconfigure GPIO pins
+     * Clears existing pins and sets up new board configuration
+     */
     const setCurrentBoard = async (boardId: string) => {
         if (boards.value.find(board => board.id === boardId)) {
             // Clear existing pins when switching boards
             try {
                 await clearPinModes();
-                console.log('Cleared pins for board switch');
             } catch (err) {
-                console.error('Failed to clear pins during board switch:', err);
+                // Continue with board switch even if clear fails
             }
 
-            // Update the board in config
             await configStore.setLEDBoardType(boardId);
 
             // Set up pins for the new board
             const newBoard = boards.value.find(board => board.id === boardId);
             if (newBoard) {
                 try {
-                    console.log(`Setting up pins for ${newBoard.displayName}`);
-
-                    // Set up all 3 pins for the new board
                     await setPinMode(newBoard.pins.red, 'Red');
                     await setPinMode(newBoard.pins.green, 'Green');
                     await setPinMode(newBoard.pins.blue, 'Blue');
-
-                    console.log(`Pins configured for ${newBoard.displayName}:`, newBoard.pins);
                 } catch (err) {
-                    console.error('Failed to set up pins for new board:', err);
+                    // Pin setup failed but board is switched
                 }
             }
         }
@@ -234,6 +200,9 @@ export const useLEDStore = defineStore('led', () => {
         }
     };
 
+    /**
+     * Set individual color component with value clamping
+     */
     const setLEDColor = (color: 'red' | 'green' | 'blue', value: number) => {
         const board = boards.value.find(board => board.id === currentBoard.value);
         if (board) {
@@ -248,6 +217,9 @@ export const useLEDStore = defineStore('led', () => {
         }
     };
 
+    /**
+     * Test individual color channel by setting it to full brightness
+     */
     const testColor = async (color: 'red' | 'green' | 'blue') => {
         if (!currentBoardConfig.value) return;
 
@@ -255,12 +227,6 @@ export const useLEDStore = defineStore('led', () => {
         error.value = null;
 
         try {
-            const board = currentBoardConfig.value;
-            const pin = board.pins[color];
-            const colorName = color.charAt(0).toUpperCase() + color.slice(1) as 'Red' | 'Green' | 'Blue';
-
-            console.log(`Testing ${colorName} LED on pin ${pin}`);
-
             const testColorValues = {
                 red: color === 'red' ? 255 : 0,
                 green: color === 'green' ? 255 : 0,
@@ -268,17 +234,17 @@ export const useLEDStore = defineStore('led', () => {
             };
 
             await setColorMode(testColorValues);
-            console.log(`${colorName} LED test activated - LED should stay on`);
-
         } catch (err) {
-            console.error(`Failed to test ${color} LED:`, err);
             error.value = `Failed to test ${color} LED`;
         } finally {
             isTestMode.value = false;
         }
     };
 
-    // Save configuration by setting up all pins and color mode
+    /**
+     * Save complete LED configuration including pins, brightness, and colors
+     * Performs full setup sequence for reliable hardware state
+     */
     const saveConfiguration = async () => {
         if (!currentBoardConfig.value) return { success: false, message: 'No board selected' };
 
@@ -296,10 +262,8 @@ export const useLEDStore = defineStore('led', () => {
             await setPinMode(board.pins.green, 'Green');
             await setPinMode(board.pins.blue, 'Blue');
 
-            // Set brightness
+            // Set brightness and color
             await setBrightness(board.config.brightness);
-
-            // Set color mode
             await setColorMode({
                 red: board.config.red,
                 green: board.config.green,
@@ -310,7 +274,6 @@ export const useLEDStore = defineStore('led', () => {
 
             return { success: true, message: 'LED configuration saved successfully' };
         } catch (err) {
-            console.error('Failed to save LED configuration:', err);
             error.value = 'Failed to save LED configuration';
             return { success: false, message: 'Failed to save LED configuration' };
         } finally {
@@ -318,10 +281,12 @@ export const useLEDStore = defineStore('led', () => {
         }
     };
 
+    /**
+     * Reset configuration to defaults and turn off hardware
+     */
     const resetToDefaults = async () => {
         const board = boards.value.find(board => board.id === currentBoard.value);
         if (board) {
-            // Reset to default values based on board type
             const defaults: Record<string, LEDConfig> = {
                 rpi4: { red: 0, green: 0, blue: 0, brightness: 255, enabled: false },
                 rock4: { red: 0, green: 0, blue: 0, brightness: 255, enabled: false },
@@ -333,27 +298,27 @@ export const useLEDStore = defineStore('led', () => {
             // Clear hardware pins and turn off LEDs
             try {
                 await clearPinModes();
-                // Turn off all colors
                 await setColorMode({ red: 0, green: 0, blue: 0 });
-                console.log('Reset to defaults - pins cleared and LEDs turned off');
             } catch (err) {
-                console.error('Failed to clear pins during reset:', err);
+                // Reset local state even if hardware clear fails
             }
         }
     };
 
-    // Add a method to turn off all LEDs without clearing pins
+    /**
+     * Turn off all LEDs without clearing pin configuration
+     */
     const turnOffLEDs = async () => {
         try {
             await setColorMode({ red: 0, green: 0, blue: 0 });
-            console.log('All LEDs turned off');
         } catch (err) {
-            console.error('Failed to turn off LEDs:', err);
             throw err;
         }
     };
 
-    // Initialize store - ensure config store is loaded
+    /**
+     * Initialize store by ensuring config store is loaded
+     */
     const initializeStore = async () => {
         await configStore.fetchConfigs();
     };
@@ -365,12 +330,10 @@ export const useLEDStore = defineStore('led', () => {
         loading,
         error,
         boards,
-
         // Getters
         currentBoard,
         currentBoardConfig,
         availableBoards,
-
         // API Actions
         getBrightness,
         setBrightness,
@@ -378,7 +341,6 @@ export const useLEDStore = defineStore('led', () => {
         setPinMode,
         clearPinModes,
         setColorMode,
-
         // Local Actions
         setCurrentBoard,
         updateLEDConfig,

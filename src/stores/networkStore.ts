@@ -8,6 +8,9 @@ import type {
 } from "@/types/network";
 import { useConfigStore } from '@/stores/configStore';
 
+/**
+ * Network management store handling WiFi connections, hotspot, and interface monitoring
+ */
 export const useNetworkStore = defineStore('network', () => {
     const loading = ref(false);
     const scanning = ref(false);
@@ -25,6 +28,9 @@ export const useNetworkStore = defineStore('network', () => {
 
     const configStore = useConfigStore();
 
+    /**
+     * Test internet connectivity via API endpoint
+     */
     async function checkInternetConnection(): Promise<boolean> {
         try {
             loading.value = true;
@@ -37,13 +43,15 @@ export const useNetworkStore = defineStore('network', () => {
 
             return !!online;
         } catch (err) {
-            console.error('Failed to check internet connection:', err);
             return false;
         } finally {
             loading.value = false;
         }
     }
 
+    /**
+     * Fetch current network status and load hotspot configuration from config store
+     */
     async function fetchNetworkStatus(): Promise<void> {
         try {
             loading.value = true;
@@ -56,6 +64,7 @@ export const useNetworkStore = defineStore('network', () => {
 
             hotspotEnabled.value = !!isHotspotActive;
 
+            // Load hotspot settings from config
             const ssidConfig = configStore.configs.find(c => c.key === 'hotspot_ssid');
             const passwordConfig = configStore.configs.find(c => c.key === 'hotspot_password');
 
@@ -69,12 +78,15 @@ export const useNetworkStore = defineStore('network', () => {
 
             loading.value = false;
         } catch (err) {
-            console.error('Failed to fetch network status:', err);
             error.value = err instanceof Error ? err.message : 'Unknown error occurred';
             loading.value = false;
         }
     }
 
+    /**
+     * Scan for available WiFi networks and sort by signal strength
+     * Updates connection status for discovered networks
+     */
     async function scanNetworks(): Promise<NetworkDevice[]> {
         try {
             scanning.value = true;
@@ -95,6 +107,7 @@ export const useNetworkStore = defineStore('network', () => {
                     connected: false
                 }));
 
+                // Sort by signal strength (strongest first)
                 availableNetworks.value.sort((a, b) => b.signal - a.signal);
 
                 await updateConnectedNetworks();
@@ -103,13 +116,15 @@ export const useNetworkStore = defineStore('network', () => {
             scanning.value = false;
             return availableNetworks.value;
         } catch (err) {
-            console.error('Failed to scan networks:', err);
             error.value = err instanceof Error ? err.message : 'Unknown error occurred';
             scanning.value = false;
             return [];
         }
     }
 
+    /**
+     * Update connection status for available networks based on active interfaces
+     */
     async function updateConnectedNetworks(): Promise<void> {
         const currentNetworks = await fetchNetworkInfo();
 
@@ -121,6 +136,10 @@ export const useNetworkStore = defineStore('network', () => {
         });
     }
 
+    /**
+     * Connect to a WiFi network with optional password
+     * Updates local network state on successful connection
+     */
     async function connectToNetwork(ssid: string, password: string | null): Promise<boolean> {
         try {
             connecting.value = true;
@@ -136,6 +155,7 @@ export const useNetworkStore = defineStore('network', () => {
                 errorMessage: 'Failed to connect to network'
             });
 
+            // Update local connection state
             availableNetworks.value = availableNetworks.value.map(n => ({
                 ...n,
                 connected: n.ssid === ssid
@@ -144,13 +164,16 @@ export const useNetworkStore = defineStore('network', () => {
             connecting.value = false;
             return true;
         } catch (err) {
-            console.error('Failed to connect to network:', err);
             error.value = err instanceof Error ? err.message : 'Unknown error occurred';
             connecting.value = false;
             return false;
         }
     }
 
+    /**
+     * Enable or disable hotspot with optional settings override
+     * Persists settings to config store when provided
+     */
     async function setHotspotEnabled(enabled: boolean, settings?: HotspotSettings): Promise<boolean> {
         try {
             hotspotLoading.value = true;
@@ -194,7 +217,6 @@ export const useNetworkStore = defineStore('network', () => {
             hotspotLoading.value = false;
             return true;
         } catch (err) {
-            console.error('Failed to set hotspot state:', err);
             error.value = err instanceof Error ? err.message : 'Unknown error occurred';
             hotspotLoading.value = false;
             return false;
@@ -214,13 +236,15 @@ export const useNetworkStore = defineStore('network', () => {
             hotspotLoading.value = false;
             return true;
         } catch (err) {
-            console.error('Failed to restart hotspot:', err);
             error.value = err instanceof Error ? err.message : 'Unknown error occurred';
             hotspotLoading.value = false;
             return false;
         }
     }
 
+    /**
+     * Update hotspot configuration and restart if currently active
+     */
     async function updateHotspotSettings(settings: HotspotSettings): Promise<boolean> {
         try {
             loading.value = true;
@@ -231,6 +255,7 @@ export const useNetworkStore = defineStore('network', () => {
 
             hotspotSettings.value = { ...settings };
 
+            // Restart hotspot if currently active to apply new settings
             if (hotspotEnabled.value) {
                 await restartHotspot();
             }
@@ -238,17 +263,22 @@ export const useNetworkStore = defineStore('network', () => {
             loading.value = false;
             return true;
         } catch (err) {
-            console.error('Failed to update hotspot settings:', err);
             error.value = err instanceof Error ? err.message : 'Unknown error occurred';
             loading.value = false;
             return false;
         }
     }
 
+    /**
+     * Alias for fetchNetworkInfo for backward compatibility
+     */
     async function fetchNetworkInterfaces(): Promise<NetworkInfo[]> {
         return await fetchNetworkInfo();
     }
 
+    /**
+     * Fetch network interface information from system
+     */
     async function fetchNetworkInfo(): Promise<NetworkInfo[]> {
         try {
             loading.value = true;
@@ -267,13 +297,15 @@ export const useNetworkStore = defineStore('network', () => {
             loading.value = false;
             return [];
         } catch (err) {
-            console.error('Failed to fetch network info:', err);
             error.value = err instanceof Error ? err.message : 'Unknown error occurred';
             loading.value = false;
             return [];
         }
     }
 
+    /**
+     * Get Material icon name based on WiFi signal strength
+     */
     function getWifiSignalIcon(strength: number): string {
         if (strength >= 75) return 'wifi';
         if (strength >= 50) return 'wifi_2_bar';

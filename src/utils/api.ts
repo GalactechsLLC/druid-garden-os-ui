@@ -1,46 +1,20 @@
 import { ofetch } from 'ofetch';
 import { useNotificationStore } from '@/stores/notificationStore';
-
-// API base URL - can be made environment-specific
-export const API_BASE_URL = '';
-
-// Available HTTP methods
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH' | 'HEAD';
-
-// Generic response interface
-export interface ApiResponse<T = any> {
-    data?: T;
-    success: boolean;
-    message?: string;
-    errors?: Record<string, string[]>;
-    status?: number;
-}
-
-// Retry configuration type
-export interface RetryOptions {
-    retries: number;
-    methods?: HttpMethod[];
-    statusCodes?: number[];
-    delay?: number;
-}
-
-// Request configuration options
-export interface RequestOptions {
-    method?: HttpMethod;
-    body?: any;
-    headers?: Record<string, string>;
-    timeout?: number;
-    retry?: number | boolean | RetryOptions;
-    query?: Record<string, string | number | boolean>;
-    showErrorNotification?: boolean;
-    showSuccessNotification?: boolean;
-    errorMessage?: string;
-    successMessage?: string;
-    silent?: boolean;
-}
+import type {
+    HttpMethod,
+    ApiResponse,
+    RetryOptions,
+    RequestOptions,
+    ApiLoadingOptions
+} from '@/types/api';
 
 /**
- * Default request options
+ * API base URL - can be made environment-specific
+ */
+export const API_BASE_URL = '';
+
+/**
+ * Default request options for API calls
  */
 const defaultOptions: RequestOptions = {
     method: 'GET',
@@ -48,7 +22,7 @@ const defaultOptions: RequestOptions = {
         'Accept': 'application/json',
         'Content-Type': 'application/json'
     },
-    timeout: 30000,  // 30 seconds
+    timeout: 30000,
     retry: {
         retries: 1,
         methods: ['GET', 'HEAD'],
@@ -60,6 +34,8 @@ const defaultOptions: RequestOptions = {
 
 /**
  * Clean undefined or null values from an object
+ * @param obj - Object to clean
+ * @returns Object with null/undefined values removed
  */
 function cleanObject<T extends Record<string, any>>(obj: T): Partial<T> {
     return Object.entries(obj)
@@ -69,16 +45,16 @@ function cleanObject<T extends Record<string, any>>(obj: T): Partial<T> {
 
 /**
  * Build complete URL with query parameters
+ * @param endpoint - API endpoint path
+ * @param query - Query parameters to append
+ * @returns Complete URL with query string
  */
 function buildUrl(endpoint: string, query?: Record<string, string | number | boolean>): string {
-    // Remove leading slash if present to avoid double slashes
     const cleanEndpoint = endpoint.startsWith('/') ? endpoint.slice(1) : endpoint;
     const baseUrl = `${API_BASE_URL}/${cleanEndpoint}`;
 
-    // If there are no query parameters, just return the base URL
     if (!query) return baseUrl;
 
-    // Clean and build query parameters
     const cleanQuery = cleanObject(query);
     const queryEntries = Object.entries(cleanQuery);
 
@@ -93,31 +69,26 @@ function buildUrl(endpoint: string, query?: Record<string, string | number | boo
 
 /**
  * Handle API errors and show notifications if needed
+ * @param error - The error object
+ * @param options - Request options
+ * @param endpoint - API endpoint that failed
  */
 function handleError(error: any, options: RequestOptions, endpoint: string): never {
-    console.error(`API Error for ${endpoint}:`, error);
-
-    // Get notification store
     const notificationStore = useNotificationStore();
 
-    // Prepare enhanced error object
     const enhancedError = error instanceof Error
         ? error
         : new Error(typeof error === 'string' ? error : 'Unknown error');
 
-    // Add request details to error
     (enhancedError as any).endpoint = endpoint;
     (enhancedError as any).method = options.method;
 
-    // Show error notification if not silenced
     if (options.showErrorNotification && !options.silent) {
-        // Extract error message
         let errorMessage = options.errorMessage ||
             (error.response?.data?.message) ||
             error.message ||
             'An error occurred while communicating with the server';
 
-        // Improve error messages for specific error types
         if (errorMessage.includes('stream did not contain valid UTF-8')) {
             errorMessage = 'This file contains binary data and cannot be displayed as text';
         } else if (errorMessage.includes('IsADirectory') || errorMessage.includes('Cannot open Directory as File')) {
@@ -128,7 +99,6 @@ function handleError(error: any, options: RequestOptions, endpoint: string): nev
 
         const details = `${options.method || 'GET'} ${endpoint}`;
 
-        // Show the notification
         notificationStore.error(errorMessage, {
             details,
             timeout: 10000,
@@ -141,6 +111,10 @@ function handleError(error: any, options: RequestOptions, endpoint: string): nev
 
 /**
  * Process and format API response
+ * @param response - Raw API response
+ * @param options - Request options
+ * @param endpoint - API endpoint
+ * @returns Processed response data
  */
 function processResponse<T>(
     response: any,
@@ -149,22 +123,18 @@ function processResponse<T>(
 ): T {
     const notificationStore = useNotificationStore();
 
-    // Simple success case (directly return data)
     if (!(response instanceof Object) || Array.isArray(response)) {
-        // Show success notification if enabled
         if (options.showSuccessNotification && options.successMessage && !options.silent) {
             notificationStore.success(options.successMessage);
         }
         return response as T;
     }
 
-    // Handle API Response format with success flag
     const isApiResponse = 'success' in response;
 
     if (isApiResponse) {
         const apiResponse = response as ApiResponse<T>;
 
-        // If success and has a message, show success notification
         if (apiResponse.success && options.showSuccessNotification && !options.silent) {
             const message = options.successMessage || apiResponse.message;
             if (message) {
@@ -172,7 +142,6 @@ function processResponse<T>(
             }
         }
 
-        // If not success, treat as error
         if (!apiResponse.success) {
             const error = new Error(apiResponse.message || 'Request failed');
             (error as any).response = { data: apiResponse };
@@ -180,16 +149,16 @@ function processResponse<T>(
             handleError(error, options, endpoint);
         }
 
-        // Return the data field or whole response
         return (apiResponse.data !== undefined ? apiResponse.data : apiResponse) as T;
     }
 
-    // If just a regular object, return it
     return response as T;
 }
 
 /**
  * Convert retry option to ofetch format
+ * @param retry - Retry configuration
+ * @returns Formatted retry option for ofetch
  */
 function formatRetryOption(retry: RetryOptions | number | boolean | undefined): number | false | undefined {
     if (retry === undefined) return undefined;
@@ -197,25 +166,23 @@ function formatRetryOption(retry: RetryOptions | number | boolean | undefined): 
     if (typeof retry === 'number') return retry;
     if (retry === true) return 1;
 
-    // Handle RetryOptions object - convert to number for ofetch
     return retry.retries || 1;
 }
 
 /**
  * Main API request function
+ * @param endpoint - API endpoint to call
+ * @param options - Request configuration options
+ * @returns Promise resolving to the API response data
  */
 export async function apiRequest<T = any>(
     endpoint: string,
     options: RequestOptions = {}
 ): Promise<T> {
-    // Merge with default options
     const mergedOptions = { ...defaultOptions, ...options };
     const { method, body, headers, timeout, retry, query } = mergedOptions;
 
-    // Build complete URL
     const url = buildUrl(endpoint, query);
-
-    // Format retry option for ofetch
     const formattedRetry = formatRetryOption(retry);
 
     try {
@@ -236,6 +203,9 @@ export async function apiRequest<T = any>(
 
 /**
  * GET request helper
+ * @param endpoint - API endpoint to call
+ * @param options - Request options (excluding method and body)
+ * @returns Promise resolving to the API response data
  */
 export function get<T = any>(
     endpoint: string,
@@ -246,6 +216,10 @@ export function get<T = any>(
 
 /**
  * POST request helper
+ * @param endpoint - API endpoint to call
+ * @param body - Request body data
+ * @param options - Request options (excluding method)
+ * @returns Promise resolving to the API response data
  */
 export function post<T = any>(
     endpoint: string,
@@ -257,6 +231,10 @@ export function post<T = any>(
 
 /**
  * PUT request helper
+ * @param endpoint - API endpoint to call
+ * @param body - Request body data
+ * @param options - Request options (excluding method)
+ * @returns Promise resolving to the API response data
  */
 export function put<T = any>(
     endpoint: string,
@@ -268,6 +246,9 @@ export function put<T = any>(
 
 /**
  * DELETE request helper
+ * @param endpoint - API endpoint to call
+ * @param options - Request options (excluding method)
+ * @returns Promise resolving to the API response data
  */
 export function del<T = any>(
     endpoint: string,
@@ -278,6 +259,10 @@ export function del<T = any>(
 
 /**
  * PATCH request helper
+ * @param endpoint - API endpoint to call
+ * @param body - Request body data
+ * @param options - Request options (excluding method)
+ * @returns Promise resolving to the API response data
  */
 export function patch<T = any>(
     endpoint: string,
@@ -288,17 +273,16 @@ export function patch<T = any>(
 }
 
 /**
- * Handle API operations with loading state
+ * Handle API operations with loading state management
+ * @param loadingRef - Reactive reference for loading state
+ * @param apiCall - Function that returns the API promise
+ * @param options - Options for notifications and error handling
+ * @returns Promise resolving to the API result or undefined on error
  */
 export async function withApiLoading<T>(
     loadingRef: { value: boolean },
     apiCall: () => Promise<T>,
-    options: {
-        showErrorNotification?: boolean;
-        showSuccessNotification?: boolean;
-        errorMessage?: string;
-        successMessage?: string;
-    } = {}
+    options: ApiLoadingOptions = {}
 ): Promise<T | undefined> {
     const notificationStore = useNotificationStore();
 

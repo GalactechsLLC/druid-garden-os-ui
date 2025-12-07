@@ -227,19 +227,29 @@ const currentPlotCounts = computed(() => {
 // Chart data processing with consolidation
 const chartData = computed(() => {
   const records = chartStore.getHistoryForTimeframe(selectedTimeframe.value);
+  console.log('1. Raw records from chartStore.getHistoryForTimeframe:', records);
 
   if (records.length === 0) {
+    console.log('No raw records found for selected timeframe.');
     return [];
   }
 
   // Filter records with activity
   const activeRecords = records.filter(record => {
-    return record.activity.passedFilter.og.processed > 0 ||
-        record.activity.passedFilter.nft.processed > 0 ||
-        record.activity.passedFilter.compressed.processed > 0;
+    const ogProcessed = record.activity?.passedFilter?.og?.processed || 0;
+    const nftProcessed = record.activity?.passedFilter?.nft?.processed || 0;
+    const compressedProcessed = record.activity?.passedFilter?.compressed?.processed || 0;
+
+    // Log the processed values for each record to see if they are > 0
+    console.log(`FarmerChart.vue:   Record timestamp: ${record.timestamp}, OG: ${ogProcessed}, NFT: ${nftProcessed}, Compressed: ${compressedProcessed}`);
+
+    return ogProcessed > 0 || nftProcessed > 0 || compressedProcessed > 0;
   });
 
+  console.log('FarmerChart.vue: 2. Active records after filtering (should contain activity if logs are right):', activeRecords);
+
   if (activeRecords.length === 0) {
+    console.log('FarmerChart.vue: No active records found after filtering for activity.');
     return [];
   }
 
@@ -248,7 +258,6 @@ const chartData = computed(() => {
 
   // Group and consolidate data
   const consolidatedData = consolidateRecords(activeRecords, consolidationInterval);
-
   return consolidatedData.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
 });
 
@@ -450,6 +459,10 @@ onMounted(() => {
 .activity-unit {
   font-size: 0.75rem;
   color: #888;
+}
+
+.activity-stat {
+  width: 30% !important;
 }
 
 .activity-stats {

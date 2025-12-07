@@ -6,14 +6,17 @@ import type { DiskInfo } from "@/types/disk";
 
 import { calculatePercentage, formatBytes, formatPercentage, getUsageColor } from "@/utils/format";
 import {
-    calculateDiskUsagePercentage, calculateMemoryPercentage, detectCpuModel,
-    detectDiskType,
-    detectProcessUser, formatMemorySegment, formatProcessRuntime, formatUptime,
-    generateMockEvents, getMemorySegmentSize, safeNumber
+    calculateMemoryPercentage, detectCpuModel, detectDiskType,
+    detectProcessUser, formatMemorySegment, formatProcessRuntime,
+    formatUptime, getMemorySegmentSize, safeNumber
 } from "@/utils/system";
 import * as DiskUtils from '@/utils/disk';
 import { useNetworkStore } from '@/stores/networkStore';
 
+/**
+ * System information management store
+ * Aggregates data from multiple system endpoints and provides computed properties
+ */
 export const useSystemInfoStore = defineStore('systemInfo', () => {
     const systemInfo = ref<CombinedSystemInfo | null>(null);
     const loading = ref(false);
@@ -22,6 +25,10 @@ export const useSystemInfoStore = defineStore('systemInfo', () => {
 
     const networkStore = useNetworkStore();
 
+    /**
+     * Fetch system information from multiple API endpoints and combine into unified structure
+     * Enhances raw data with calculated fields and fallbacks for missing information
+     */
     async function fetchSystemInfo() {
         try {
             loading.value = true;
@@ -35,6 +42,7 @@ export const useSystemInfoStore = defineStore('systemInfo', () => {
                 gpusInfo: 'api/system/gpus'
             };
 
+            // Fetch all system data in parallel
             const systemResults = await get<System>(endpoints.systemInfo, { silent: true });
             const cpuResults = await get<CpuInfo>(endpoints.cpuInfo, { silent: true });
             const memoryResults = await get<MemoryInfo>(endpoints.memoryInfo, { silent: true });
@@ -43,6 +51,7 @@ export const useSystemInfoStore = defineStore('systemInfo', () => {
 
             await networkStore.fetchNetworkInfo();
 
+            // Enhance process data with user detection and runtime formatting
             const enhancedProcesses = systemResults.running_processes.map(process => ({
                 ...process,
                 user: detectProcessUser(process),
@@ -53,6 +62,7 @@ export const useSystemInfoStore = defineStore('systemInfo', () => {
                 system: {
                     ...systemResults,
                     load_average: cpuResults.load_averages || [0, 0, 0],
+                    // Fallback for missing update time (2 days ago)
                     last_update: systemResults.last_update || new Date(Date.now() - 172800000).toISOString()
                 },
                 memory: {
@@ -62,12 +72,15 @@ export const useSystemInfoStore = defineStore('systemInfo', () => {
                 networks: networkStore.networkInfoData,
                 cpu: {
                     usage: parseFloat(cpuResults.global_usage.toString()),
+                    // Mock temperature data since not available from API
                     temperature: 45 + Math.random() * 15,
                     model: detectCpuModel(systemResults),
                     cores: cpuResults.physical_count,
                     threads: cpuResults.thread_count,
+                    // Calculate average frequency across all cores
                     frequency: cpuResults.cpu_usage.reduce((sum, cpu) => sum + cpu.freq, 0) / cpuResults.cpu_usage.length
                 },
+                // Provide fallback GPU info if none available
                 gpus: gpusResults.length > 0 ? gpusResults : [{
                     index: 0,
                     brand: 'GPU Information Not Available',
@@ -77,7 +90,7 @@ export const useSystemInfoStore = defineStore('systemInfo', () => {
                     memory_usage: 0,
                     temperature: 0
                 }],
-                events: generateMockEvents(),
+                events: [],
                 processes: enhancedProcesses,
             };
 
@@ -86,17 +99,22 @@ export const useSystemInfoStore = defineStore('systemInfo', () => {
 
             return systemInfo.value;
         } catch (err) {
-            console.error('Failed to fetch system info:', err);
             error.value = err instanceof Error ? err.message : 'Unknown error occurred';
             loading.value = false;
             throw err;
         }
     }
 
+    /**
+     * CPU usage as decimal (0-1) for progress indicators
+     */
     const cpuUsage = computed(() => {
         return safeNumber(systemInfo.value?.cpu.usage, 0) / 100;
     });
 
+    /**
+     * Memory usage percentage calculation
+     */
     const memoryUsage = computed(() => {
         if (!systemInfo.value?.memory) return 0;
         return calculatePercentage(
@@ -105,6 +123,9 @@ export const useSystemInfoStore = defineStore('systemInfo', () => {
         );
     });
 
+    /**
+     * Enhanced disk information with type detection and usage calculations
+     */
     const formattedDisks = computed(() => {
         if (!systemInfo.value?.disks) return [];
 
@@ -115,6 +136,9 @@ export const useSystemInfoStore = defineStore('systemInfo', () => {
         }));
     });
 
+    /**
+     * Formatted system overview for display components
+     */
     const systemOverview = computed(() => {
         if (!systemInfo.value) {
             return {
@@ -137,7 +161,10 @@ export const useSystemInfoStore = defineStore('systemInfo', () => {
         };
     });
 
-    // Calculate storage from mounted partitions
+    /**
+     * Calculate total storage information from all mounted partitions
+     * Aggregates space usage across all mount points for overview display
+     */
     const storageInfo = computed(() => {
         if (!systemInfo.value?.disks) {
             return {
@@ -162,6 +189,7 @@ export const useSystemInfoStore = defineStore('systemInfo', () => {
             type: string;
         }> = [];
 
+        // Aggregate data from all mounted partitions
         systemInfo.value.disks.forEach(disk => {
             if (disk.partitions) {
                 disk.partitions.forEach(partition => {
@@ -210,6 +238,7 @@ export const useSystemInfoStore = defineStore('systemInfo', () => {
         systemOverview,
         storageInfo,
         fetchSystemInfo,
+        // Re-export utility functions for component use
         formatBytes,
         formatUptime,
         safeNumber,

@@ -81,11 +81,6 @@ export const useDiskStore = defineStore('disk', {
                                 free_space: 0
                             },
                             loading: false,
-                            // Legacy compatibility fields
-                            path: partition.device,
-                            mountpoint: partition.mount_path,
-                            fstype: fsInfo.type || undefined,
-                            size: partition.space_info?.total_space || 0
                         };
 
                         return processedPartition;
@@ -141,7 +136,6 @@ export const useDiskStore = defineStore('disk', {
             partition.loading = true;
 
             try {
-                // Handle UUID mounting for new format
                 if (request.by_uuid && !request.uuid && partition.uuid) {
                     request.uuid = partition.uuid;
                 }
@@ -179,7 +173,7 @@ export const useDiskStore = defineStore('disk', {
 
             for (const disk of this.disks) {
                 const partition = disk.partitions?.find(p =>
-                    p.mount_path === mountPoint || p.mountpoint === mountPoint
+                    p.mount_path === mountPoint
                 );
 
                 if (partition) {
@@ -213,114 +207,7 @@ export const useDiskStore = defineStore('disk', {
                     foundPartition.loading = false;
                 }
             }
-        },
-
-        /**
-         * Check if a mount point exists
-         */
-        async checkMountPoint(mountPoint: string): Promise<boolean> {
-            try {
-                const response = await post('api/disks/check-mount', {
-                    mount_path: mountPoint
-                }, {
-                    showErrorNotification: false,
-                    silent: true
-                });
-
-                return response.exists || false;
-            } catch (error) {
-                console.error('Error checking mount point:', error);
-                return false;
-            }
-        },
-
-        /**
-         * Create a mount point directory if it doesn't exist
-         */
-        async createMountPoint(mountPoint: string): Promise<boolean> {
-            try {
-                const response = await post('api/disks/create-mount-point', {
-                    mount_path: mountPoint
-                }, {
-                    successMessage: `Mount point created at ${mountPoint}`,
-                    errorMessage: 'Failed to create mount point',
-                    showSuccessNotification: true,
-                    showErrorNotification: true
-                });
-
-                return response.success || false;
-            } catch (error) {
-                console.error('Error creating mount point:', error);
-                this.error = error instanceof Error ? error.message : 'Failed to create mount point';
-                throw error;
-            }
-        },
-
-        /**
-         * Get partition by device path
-         */
-        getPartitionByDevice(devicePath: string): Partition | null {
-            for (const disk of this.disks) {
-                const partition = disk.partitions?.find(p => p.device === devicePath);
-                if (partition) return partition;
-            }
-            return null;
-        },
-
-        /**
-         * Get partition by UUID
-         */
-        getPartitionByUUID(uuid: string): Partition | null {
-            for (const disk of this.disks) {
-                const partition = disk.partitions?.find(p => p.uuid === uuid);
-                if (partition) return partition;
-            }
-            return null;
-        },
-
-        /**
-         * Toggle auto-mount for a partition (works with your config store)
-         */
-        async toggleAutoMount(partition: Partition, enable: boolean, mountPath?: string): Promise<void> {
-            if (!partition.uuid) {
-                throw new Error('Cannot configure auto-mount - partition has no UUID');
-            }
-
-            const key = `auto-mount-${partition.uuid}`;
-
-            try {
-                if (enable) {
-                    const path = mountPath || `/mnt/${partition.uuid}`;
-
-                    // Create new config entry using your config store structure
-                    const configData = {
-                        key: key,
-                        value: path,
-                        category: 'preferences',
-                        system: 0,
-                        description: `Auto-mount configuration for partition ${partition.device}`,
-                        plugin: 'disk_manager',
-                        type: 'text'
-                    };
-
-                    await post('config/' + key, configData, {
-                        successMessage: `Auto-mount enabled for partition`,
-                        errorMessage: 'Failed to enable auto-mount',
-                        showSuccessNotification: true,
-                        showErrorNotification: true
-                    });
-                } else {
-                    await del('config/' + key, {
-                        successMessage: `Auto-mount disabled for partition`,
-                        errorMessage: 'Failed to disable auto-mount',
-                        showSuccessNotification: true,
-                        showErrorNotification: true
-                    });
-                }
-            } catch (error) {
-                console.error('Error toggling auto-mount:', error);
-                throw error;
-            }
         }
+
     }
 });

@@ -1,13 +1,10 @@
-// src/stores/updateStore.ts
 import { defineStore } from 'pinia';
 import { get, post } from "@/utils/api";
+import type { UpdateInfo } from '@/types/update';
 
-interface UpdateInfo {
-    local_version: string;
-    remote_version: string;
-    has_update: boolean;
-}
-
+/**
+ * System update management store
+ */
 export const useUpdateStore = defineStore('update', {
     state: () => ({
         currentVersion: '',
@@ -36,7 +33,8 @@ export const useUpdateStore = defineStore('update', {
 
     actions: {
         /**
-         * Check if updates are available
+         * Check server for available updates and update state accordingly
+         * Prevents duplicate requests if already checking
          */
         async checkForUpdates() {
             if (this.isCheckingForUpdates) return;
@@ -55,11 +53,9 @@ export const useUpdateStore = defineStore('update', {
                     this.currentVersion = response.local_version;
                     this.remoteVersion = response.remote_version;
                     this.isUpdateAvailable = response.has_update;
-
                     this.lastChecked = new Date();
                 }
             } catch (error) {
-                console.error('Error checking for updates:', error);
                 this.error = error instanceof Error ? error.message : 'Failed to check for updates';
             } finally {
                 this.isCheckingForUpdates = false;
@@ -67,7 +63,8 @@ export const useUpdateStore = defineStore('update', {
         },
 
         /**
-         * Start the system update process
+         * Initiate system update process
+         * Automatically rechecks update status after completion
          */
         async startUpdate() {
             if (this.isUpdating || !this.isUpdateAvailable) return;
@@ -83,21 +80,21 @@ export const useUpdateStore = defineStore('update', {
                     showErrorNotification: true
                 });
 
+                // Server returns "true" string on successful update initiation
                 if (response === "true") {
                     this.isUpdateAvailable = false;
                 }
             } catch (error) {
-                console.error('Error starting update:', error);
                 this.error = error instanceof Error ? error.message : 'Failed to start update';
             } finally {
                 this.isUpdating = false;
-
+                // Recheck status after update attempt
                 setTimeout(() => this.checkForUpdates(), 5000);
             }
         },
 
         /**
-         * Initialize the update store
+         * Initialize store by checking for available updates
          */
         async initialize() {
             await this.checkForUpdates();

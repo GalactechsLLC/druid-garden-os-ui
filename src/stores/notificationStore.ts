@@ -4,13 +4,20 @@ import { nanoid } from 'nanoid';
 import { defaultIcons, defaultTimeouts } from "@/types/notification";
 import type { Notification, NotificationType, NotificationOptions} from "@/types/notification";
 
+/**
+ * Notification system store managing active notifications and history
+ */
 export const useNotificationStore = defineStore('notification', () => {
     const notifications = ref<Notification[]>([]);
     const maxHistory = ref(50);
     const activeNotifications = ref<Notification[]>([]);
 
     /**
-     * Add a notification
+     * Create and display a notification with auto-dismiss and history tracking
+     * @param type - Notification type for styling and default behavior
+     * @param message - Main notification message
+     * @param options - Additional configuration options
+     * @returns Unique notification ID for programmatic dismissal
      */
     function notify(
         type: NotificationType,
@@ -35,9 +42,9 @@ export const useNotificationStore = defineStore('notification', () => {
         };
 
         activeNotifications.value = [notification, ...activeNotifications.value];
-
         addToHistory(notification);
 
+        // Auto-dismiss if timeout is set
         if (notification.timeout && notification.timeout > 0) {
             setTimeout(() => {
                 dismiss(id);
@@ -48,35 +55,36 @@ export const useNotificationStore = defineStore('notification', () => {
     }
 
     /**
-     * Add a success notification
+     * Convenience method for success notifications
      */
     function success(message: string, options: NotificationOptions = {}): string {
         return notify('positive', message, options);
     }
 
     /**
-     * Add an error notification
+     * Convenience method for error notifications
      */
     function error(message: string, options: NotificationOptions = {}): string {
         return notify('negative', message, options);
     }
 
     /**
-     * Add a warning notification
+     * Convenience method for warning notifications
      */
     function warning(message: string, options: NotificationOptions = {}): string {
         return notify('warning', message, options);
     }
 
     /**
-     * Add an info notification
+     * Convenience method for info notifications
      */
     function info(message: string, options: NotificationOptions = {}): string {
         return notify('info', message, options);
     }
 
     /**
-     * Show an API error notification with appropriate formatting
+     * Display API error with enhanced formatting and endpoint details
+     * Automatically extracts error information and provides persistent display
      */
     function apiError(error: any, fallbackMessage = 'An error occurred while communicating with the server'): string {
         const errorMessage = error instanceof Error
@@ -93,13 +101,14 @@ export const useNotificationStore = defineStore('notification', () => {
 
         return error(errorMessage, {
             details,
-            timeout: 0,
+            timeout: 0, // Persistent until manually dismissed
             closable: true
         });
     }
 
     /**
-     * Dismiss a notification by ID
+     * Remove notification with fade-out animation
+     * Calls onDismiss callback if provided
      */
     function dismiss(id: string): void {
         try {
@@ -107,9 +116,10 @@ export const useNotificationStore = defineStore('notification', () => {
             if (activeIndex >= 0) {
                 activeNotifications.value[activeIndex].visible = false;
 
+                // Remove after animation completes
                 setTimeout(() => {
                     activeNotifications.value = activeNotifications.value.filter(n => n.id !== id);
-                }, 300); // 300ms matches the animation duration
+                }, 300);
             }
 
             const notification = notifications.value.find(n => n.id === id);
@@ -117,12 +127,12 @@ export const useNotificationStore = defineStore('notification', () => {
                 notification.onDismiss();
             }
         } catch (e) {
-            console.error('Error dismissing notification:', e);
+            // Silently handle dismissal errors
         }
     }
 
     /**
-     * Clear all notifications
+     * Clear all active notifications with staggered animation
      */
     function clearAll(): void {
         activeNotifications.value.forEach(notification => {
@@ -135,22 +145,21 @@ export const useNotificationStore = defineStore('notification', () => {
     }
 
     /**
-     * Add notification to history
+     * Add notification to persistent history with size limit
      */
     function addToHistory(notification: Notification): void {
         notifications.value = [notification, ...notifications.value].slice(0, maxHistory.value);
     }
 
-
     /**
-     * Get recent notifications
+     * Get notifications sorted by timestamp (newest first)
      */
     const recentNotifications = computed(() => {
         return [...notifications.value].sort((a, b) => b.timestamp - a.timestamp);
     });
 
     /**
-     * Count notifications by type
+     * Count notifications by type for dashboard metrics
      */
     const notificationCounts = computed(() => {
         return {
