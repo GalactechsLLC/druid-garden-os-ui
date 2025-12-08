@@ -26,7 +26,6 @@ const lastUpdated = ref<Date | null>(null)
 const showPoolLoginDialog = ref(false);
 const gettingPoolLogin = ref(false);
 const poolLoginUrl = ref<string>('');
-const selectedLauncherId = ref<string>('');
 const loadingConfig = ref(false);
 
 const poolLoginUrls = ref<{ launcherId: string; url: string }[]>([]);
@@ -778,38 +777,6 @@ onUnmounted(() => {
       <q-card-section v-else>
         <div class="text-body2 text-grey-7 q-mb-md">
           Generate a login URL for your farming pool dashboard.
-        </div>
-
-        <!-- Launcher ID Selection (if multiple) -->
-        <div v-if="hasMultipleLauncherIds" class="q-mb-md">
-          <q-select
-              v-model="selectedLauncherId"
-              :options="availableLauncherIds"
-              label="Select Launcher ID"
-              outlined
-              dense
-              emit-value
-              map-options
-          >
-            <template v-slot:no-option>
-              <q-item>
-                <q-item-section class="text-grey">
-                  No launcher IDs found
-                </q-item-section>
-              </q-item>
-            </template>
-          </q-select>
-        </div>
-
-        <!-- Show current launcher ID if only one -->
-        <div v-else-if="availableLauncherIds.length === 1" class="q-mb-md">
-          <q-input
-              :model-value="availableLauncherIds[0].value"
-              label="Launcher ID"
-              readonly
-              outlined
-              dense
-          />
         </div>
 
         <q-btn
